@@ -1,18 +1,22 @@
-#**MediTrack**
-MediTrack es una aplicación móvil interactiva diseñada para el seguimiento automatizado de atenciones médicas y medicamentos en pacientes crónicos. Su objetivo principal es centralizar citas médicas, controles periódicos y recordatorios de medicación. El proyecto se desarrolla para la asignatura Capstone de la carrera de Ingeniería en Informática, sede Duoc UC Puerto Montt.
-##**👥 Equipo de Desarrollo**
+# **MediTrack**
+MediTrack es una aplicación móvil interactiva diseñada para el seguimiento automatizado de atenciones médicas y medicamentos en pacientes crónicos. Su objetivo principal es centralizar citas médicas, controles periódicos y recordatorios de medicación.
+
+## **👥 Equipo de Desarrollo**
 - Jorge Garrido 
 - Eduardo González
-- Matías Riveros 
-##**✨ Características Principales**
+- Matías Riveros
+  
+## **✨ Características Principales**
 - **Motor de Procesamiento de Datos:** Backend que identifica correos con contenido de salud y extrae entidades clave (doctor, especialidad, fecha, hora, lugar) para transformarlos en modelos de datos estructurados mediante expresiones regulares (Regex).  
 - **Integración Segura:** Autenticación delegada mediante el protocolo OAuth 2.0 para consultar la API de correo electrónico de forma segura.  Dashboard Centralizador: Interfaz móvil interactiva para visualizar las próximas atenciones y esquemas médicos diarios.  
-- **Alertas Pasivas:** Widgets interactivos nativos programados para la pantalla de inicio del sistema operativo, diseñados para aumentar la asistencia a controles y reducir el olvido de tratamientos.  
-##**🛠️ Stack Tecnológico**
+- **Alertas Pasivas:** Widgets interactivos nativos programados para la pantalla de inicio del sistema operativo, diseñados para aumentar la asistencia a controles y reducir el olvido de tratamientos.
+  
+## **🛠️ Stack Tecnológico**
 - **Frontend Móvil:** React Native y Expo.  
 - **Backend y Base de Datos:** Node.js, Express y PostgreSQL.  
 - **Servicios de Nube:** Google Cloud Console para credenciales OAuth 2.0. 
-- **Herramientas de Trabajo:** Figma, Visual Studio Code y GitHub.  
+- **Herramientas de Trabajo:** Figma, Visual Studio Code y GitHub.
+    
 ## **🚀 Instrucciones de Ejecución (Entorno de Desarrollo)**
 Sigue estos pasos para levantar el entorno local del frontend móvil correspondiente a la Actividad A6 del plan de trabajo.  
 1. **Requisitos Previos**
