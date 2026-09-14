@@ -24,6 +24,7 @@ Sigue estos pasos para levantar el entorno local del frontend móvil correspondi
     - Instalar Node.js en el equipo de cómputo para desarrollo.  
     - Instalar la aplicación Expo Go en un dispositivo móvil físico para pruebas. 
     - Posicionarse en la terminal dentro de la carpeta raíz del proyecto móvil.
+        
         `cd meditrack-mobile`
 
 2. **Instalación de Dependencias**
