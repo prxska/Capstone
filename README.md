@@ -6,23 +6,26 @@ MediTrack es una aplicación móvil interactiva diseñada para el seguimiento au
 - Eduardo González
 - Matías Riveros
   
-## **✨ Características Principales**
-- **Motor de Procesamiento de Datos:** Backend que identifica correos con contenido de salud y extrae entidades clave (doctor, especialidad, fecha, hora, lugar) para transformarlos en modelos de datos estructurados mediante expresiones regulares (Regex).  
-- **Integración Segura:** Autenticación delegada mediante el protocolo OAuth 2.0 para consultar la API de correo electrónico de forma segura.  Dashboard Centralizador: Interfaz móvil interactiva para visualizar las próximas atenciones y esquemas médicos diarios.  
-- **Alertas Pasivas:** Widgets interactivos nativos programados para la pantalla de inicio del sistema operativo, diseñados para aumentar la asistencia a controles y reducir el olvido de tratamientos.
-  
-## **🛠️ Stack Tecnológico**
-- **Frontend Móvil:** React Native y Expo.  
-- **Backend y Base de Datos:** Node.js, Express y PostgreSQL.  
-- **Servicios de Nube:** Google Cloud Console para credenciales OAuth 2.0. 
-- **Herramientas de Trabajo:** Figma, Visual Studio Code y GitHub.
+## ✨ Características Principales
+* **Gestión Manual de Citas y Tratamientos:** Interfaz intuitiva que permite a los usuarios registrar sus horas médicas y esquemas de medicación directamente en el calendario de la aplicación.
+* **Dashboard Centralizador:** Interfaz móvil interactiva para visualizar rápidamente las próximas atenciones y rutinas médicas diarias.
+* **Sistema de Notificaciones Push y Alarmas Locales:** Programación automatizada de recordatorios pasivos a partir del registro manual, diseñados para aumentar la asistencia a controles y reducir el olvido de tratamientos.
+
+## 🛠️ Stack Tecnológico
+* **Frontend Móvil:** React Native y Expo (incluyendo `expo-notifications` para las alarmas).
+* **Backend y Base de Datos:** Node.js, Express y PostgreSQL.
+* **Herramientas de Trabajo:** Figma, Visual Studio Code y GitHub.
     
+---
+
 ## **🚀 Instrucciones de Ejecución (Entorno de Desarrollo)**
 Sigue estos pasos para levantar el entorno local del frontend móvil correspondiente a la Actividad A6 del plan de trabajo.  
 1. **Requisitos Previos**
     - Instalar Node.js en el equipo de cómputo para desarrollo.  
     - Instalar la aplicación Expo Go en un dispositivo móvil físico para pruebas. 
     - Posicionarse en la terminal dentro de la carpeta raíz del proyecto móvil.
+        `cd meditrack-mobile`
+
 2. **Instalación de Dependencias**
 
     - Instala los paquetes base ejecutando el siguiente comando en la terminal:
