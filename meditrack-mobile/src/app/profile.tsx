@@ -1,250 +1,572 @@
 import React, { useEffect, useState } from 'react';
 import {
-  StyleSheet, View, Text, TouchableOpacity,
-  ScrollView, Switch, Alert, Platform, ActivityIndicator
+  StyleSheet, View, Text, TouchableOpacity, Alert,
+  ScrollView, Switch, Platform, ActivityIndicator,
+  NativeSyntheticEvent, NativeScrollEvent
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
+import { LocalAuth } from '../lib/storage';
 import { useTheme } from '../context/ThemeContext';
+import { useAlarm } from '../context/AlarmContext';
 
 export default function ProfileScreen() {
   const router = useRouter();
-
-  const [fullName, setFullName] = useState('');
-  const [email, setEmail] = useState('');
-  const [loading, setLoading] = useState(true);
-
-  const { isDarkMode, setIsDarkMode, largeFont, setLargeFont } = useTheme();
-  const [notifications, setNotifications] = useState(true);
+  const { isDarkMode, toggleTheme, largeFont, toggleFont } = useTheme();
+  const { triggerManualAlarm } = useAlarm();
+  const [userName, setUserName] = useState('');
+  const [userEmail, setUserEmail] = useState('');
+  const [isGuest, setIsGuest] = useState(false);
+  const [testingAlarm, setTestingAlarm] = useState(false);
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const [showScrollPrompt, setShowScrollPrompt] = useState(true);
 
   useEffect(() => {
-    async function getProfile() {
-      try {
-        const { data: { user }, error } = await supabase.auth.getUser();
-        if (error || !user) {
-          redirectToLogin();
-          return;
-        }
+    async function loadData() {
+      const guest = await LocalAuth.isGuestMode();
+      setIsGuest(guest);
 
-        setEmail(user.email || 'Sin correo asociado');
-        const userMetadataName = user.user_metadata?.full_name;
-        setFullName(userMetadataName || user.email?.split('@')[0] || 'Paciente');
-      } catch (err: any) {
-        Alert.alert('Error', 'No se pudo cargar la sesión.');
-      } finally {
-        setLoading(false);
+      if (guest) {
+        setUserName('Modo Local (Sin cuenta)');
+        setUserEmail('Tus datos se guardan sólo en este teléfono');
+      } else {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          setUserName(user.user_metadata?.full_name || 'Paciente');
+          setUserEmail(user.email || '');
+        }
       }
     }
-
-    getProfile();
+    loadData();
   }, []);
 
-  function redirectToLogin() {
-    try {
-      router.replace('/login' as any);
-    } catch {
-      router.replace('/');
+  const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const offsetY = event.nativeEvent.contentOffset.y;
+    if (offsetY > 30 && showScrollPrompt) {
+      setShowScrollPrompt(false);
+    } else if (offsetY <= 10 && !showScrollPrompt) {
+      setShowScrollPrompt(true);
     }
+  };
 
-    if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      window.location.href = '/login';
-    }
-  }
+  const handleTestAlarm = () => {
+    setTestingAlarm(true);
+    setCountdown(3);
 
-  async function performLogout() {
-    try {
-      setLoading(true);
-      await supabase.auth.signOut();
-      redirectToLogin();
-    } catch (err: any) {
-      console.error('Error al salir:', err);
-      Alert.alert('Error al salir', 'No se pudo cerrar la sesión.');
-    } finally {
-      setLoading(false);
-    }
-  }
+    let current = 3;
+    const timer = setInterval(() => {
+      current -= 1;
+      if (current <= 0) {
+        clearInterval(timer);
+        setCountdown(null);
+        setTestingAlarm(false);
 
-  function handleSignOut() {
-    if (Platform.OS === 'web') {
-      const confirmLogout = window.confirm('¿Estás seguro de que deseas salir de MediTrack?');
-      if (confirmLogout) {
-        performLogout();
+        triggerManualAlarm({
+          id: 'test-1',
+          medication: 'Paracetamol 500mg',
+          dose: '1 comprimido',
+          color: '#38BDF8',
+          colorName: 'Azul',
+          time: '08:00',
+        });
+      } else {
+        setCountdown(current);
       }
-      return;
-    }
+    }, 1000);
+  };
 
+  const handleSignOut = async () => {
     Alert.alert(
       'Cerrar Sesión',
-      '¿Estás seguro de que deseas salir de MediTrack?',
+      isGuest
+        ? 'Al salir del modo local volverás a la pantalla de acceso.'
+        : '¿Deseas cerrar tu sesión actual?',
       [
         { text: 'Cancelar', style: 'cancel' },
         {
           text: 'Salir',
           style: 'destructive',
-          onPress: performLogout,
+          onPress: async () => {
+            await LocalAuth.clearGuestMode();
+            await supabase.auth.signOut();
+            router.replace('/login' as any);
+          },
         },
       ]
     );
-  }
-
-  function handleGoBack() {
-    if (router.canGoBack()) {
-      router.back();
-    } else {
-      router.replace('/');
-    }
-  }
-
-  if (loading) {
-    return (
-      <SafeAreaView style={[styles.container, styles.center, isDarkMode && styles.containerDark]}>
-        <ActivityIndicator size="large" color="#36B9CC" />
-      </SafeAreaView>
-    );
-  }
+  };
 
   return (
-    <SafeAreaView style={[styles.container, isDarkMode && styles.containerDark]}>
-      {/* Top Bar de navegación */}
-      <View style={styles.topBar}>
-        <TouchableOpacity style={styles.backButton} onPress={handleGoBack}>
-          <Ionicons name="arrow-back" size={24} color={isDarkMode ? '#FFF' : '#102A43'} />
+    <SafeAreaView style={[styles.container, isDarkMode && styles.darkContainer]}>
+      {/* Barra superior con botón volver */}
+      <View style={styles.header}>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={[styles.backButton, isDarkMode && styles.darkRoundBtn]}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        >
+          <Ionicons name="arrow-back" size={28} color={isDarkMode ? '#F1F5F9' : '#102A43'} />
         </TouchableOpacity>
-        <Text style={[styles.topBarTitle, isDarkMode && styles.textWhite]}>Ajustes y Cuenta</Text>
+        <Text style={[
+          styles.headerTitle,
+          isDarkMode && { color: '#F1F5F9' },
+          largeFont && { fontSize: 26 }
+        ]}>
+          Mi Perfil
+        </Text>
         <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollArea} showsVerticalScrollIndicator={false}>
-        {/* Cabecera con saludo personalizado */}
-        <View style={[styles.userCard, isDarkMode && styles.cardDark]}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>
-              {fullName ? fullName[0].toUpperCase() : 'M'}
+      <View style={{ flex: 1, position: 'relative' }}>
+        <ScrollView
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={true}
+          persistentScrollbar={true}
+          indicatorStyle={isDarkMode ? 'white' : 'black'}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
+        >
+          {/* Tarjeta de usuario */}
+          <View style={[styles.userCard, isDarkMode && styles.darkCard]}>
+            <View style={[styles.avatarCircle, isDarkMode && { backgroundColor: '#334155' }]}>
+              <Ionicons
+                name={isGuest ? "phone-portrait" : "person"}
+                size={56}
+                color={isDarkMode ? '#38BDF8' : '#0EA5E9'}
+              />
+            </View>
+            <Text style={[
+              styles.userName,
+              isDarkMode && { color: '#F1F5F9' },
+              largeFont && { fontSize: 26 }
+            ]}>
+              {userName}
             </Text>
+            <Text style={[
+              styles.userEmail,
+              isDarkMode && { color: '#94A3B8' },
+              largeFont && { fontSize: 18 }
+            ]}>
+              {userEmail}
+            </Text>
+
+            {isGuest && (
+              <View style={styles.guestWarningBox}>
+                <Ionicons name="warning" size={20} color="#D97706" />
+                <Text style={[styles.guestWarningText, largeFont && { fontSize: 16 }]}>
+                  Modo local activo: Sin respaldo en la nube.
+                </Text>
+              </View>
+            )}
           </View>
-          <Text style={[styles.greeting, largeFont && styles.fontLargeTitle, isDarkMode && styles.textWhite]}>
-            ¡Hola, {fullName || 'Paciente'}!
+
+          {/* Sección Diagnóstico y Prueba de Alarmas */}
+          <Text style={[
+            styles.sectionTitle,
+            isDarkMode && { color: '#94A3B8' },
+            largeFont && { fontSize: 16 }
+          ]}>
+            SISTEMA DE ALARMAS Y HARDWARE
           </Text>
-          <Text style={styles.userEmail}>{email}</Text>
 
-          <View style={styles.statusBadge}>
-            <Ionicons name="shield-checkmark-outline" size={14} color="#0284C7" />
-            <Text style={styles.statusBadgeText}>PACIENTE REGISTRADO</Text>
-          </View>
-        </View>
-
-        {/* Sección: Accesibilidad y Configuración */}
-        <Text style={styles.sectionHeader}>PREFERENCIAS Y ACCESIBILIDAD</Text>
-        <View style={[styles.card, isDarkMode && styles.cardDark]}>
-          <View style={styles.settingRow}>
-            <View style={styles.settingInfo}>
-              <Ionicons name="moon-outline" size={22} color={isDarkMode ? '#38BDF8' : '#334155'} />
-              <View style={styles.settingTexts}>
-                <Text style={[styles.settingTitle, largeFont && styles.fontLargeText, isDarkMode && styles.textWhite]}>
-                  Modo Oscuro
-                </Text>
-                <Text style={styles.settingSub}>Interfaz con fondo oscuro</Text>
+          <View style={[styles.card, isDarkMode && styles.darkCard]}>
+            <View style={styles.testCardContent}>
+              <View style={styles.testIconTextRow}>
+                <View style={[styles.iconBox, { backgroundColor: isDarkMode ? '#334155' : '#FEF3C7' }]}>
+                  <Ionicons name="alarm" size={26} color={isDarkMode ? '#FDE68A' : '#D97706'} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[
+                    styles.optionTitle,
+                    isDarkMode && { color: '#F1F5F9' },
+                    largeFont && { fontSize: 20 }
+                  ]}>
+                    Prueba de Alarma In-App
+                  </Text>
+                  <Text style={[
+                    styles.optionSubtitle,
+                    isDarkMode && { color: '#94A3B8' },
+                    largeFont && { fontSize: 15 }
+                  ]}>
+                    Ejecuta vibración táctil y modal interactivo de confirmación.
+                  </Text>
+                </View>
               </View>
+
+              <TouchableOpacity
+                style={[
+                  styles.testButton,
+                  testingAlarm && styles.testButtonDisabled,
+                  isDarkMode && styles.darkTestButton
+                ]}
+                onPress={handleTestAlarm}
+                disabled={testingAlarm}
+                activeOpacity={0.8}
+              >
+                {testingAlarm ? (
+                  <View style={styles.countdownRow}>
+                    <ActivityIndicator size="small" color="#FFF" />
+                    <Text style={[styles.testButtonText, largeFont && { fontSize: 18 }]}>
+                      Disparando en {countdown}s...
+                    </Text>
+                  </View>
+                ) : (
+                  <View style={styles.countdownRow}>
+                    <Ionicons name="play-circle-outline" size={22} color="#FFF" />
+                    <Text style={[styles.testButtonText, largeFont && { fontSize: 18 }]}>
+                      Probar alarma ahora (3s)
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
             </View>
-            <Switch
-              value={isDarkMode}
-              onValueChange={setIsDarkMode}
-              trackColor={{ false: '#CBD5E1', true: '#36B9CC' }}
-            />
           </View>
 
-          <View style={styles.divider} />
+          {/* Sección Preferencias de Accesibilidad */}
+          <Text style={[
+            styles.sectionTitle,
+            isDarkMode && { color: '#94A3B8' },
+            largeFont && { fontSize: 16 }
+          ]}>
+            PREFERENCIAS DE VISUALIZACIÓN
+          </Text>
 
-          <View style={styles.settingRow}>
-            <View style={styles.settingInfo}>
-              <Ionicons name="text-outline" size={22} color={isDarkMode ? '#38BDF8' : '#334155'} />
-              <View style={styles.settingTexts}>
-                <Text style={[styles.settingTitle, largeFont && styles.fontLargeText, isDarkMode && styles.textWhite]}>
-                  Texto Grande
-                </Text>
-                <Text style={styles.settingSub}>Aumenta el tamaño de la tipografía</Text>
+          <View style={[styles.card, isDarkMode && styles.darkCard]}>
+            <View style={styles.optionRow}>
+              <View style={styles.optionLeft}>
+                <View style={[styles.iconBox, { backgroundColor: isDarkMode ? '#334155' : '#E0F2FE' }]}>
+                  <Ionicons
+                    name={isDarkMode ? "moon" : "sunny"}
+                    size={26}
+                    color={isDarkMode ? '#38BDF8' : '#0284C7'}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[
+                    styles.optionTitle,
+                    isDarkMode && { color: '#F1F5F9' },
+                    largeFont && { fontSize: 22 }
+                  ]}>
+                    Modo Oscuro
+                  </Text>
+                  <Text style={[
+                    styles.optionSubtitle,
+                    isDarkMode && { color: '#94A3B8' },
+                    largeFont && { fontSize: 16 }
+                  ]}>
+                    {isDarkMode ? 'Activado (Fondo oscuro)' : 'Desactivado (Fondo claro)'}
+                  </Text>
+                </View>
               </View>
+              <Switch
+                value={isDarkMode}
+                onValueChange={toggleTheme}
+                trackColor={{ false: '#CBD5E1', true: '#38BDF8' }}
+                thumbColor={isDarkMode ? '#0284C7' : '#FFFFFF'}
+              />
             </View>
-            <Switch
-              value={largeFont}
-              onValueChange={setLargeFont}
-              trackColor={{ false: '#CBD5E1', true: '#36B9CC' }}
-            />
-          </View>
 
-          <View style={styles.divider} />
+            <View style={[styles.divider, isDarkMode && { backgroundColor: '#334155' }]} />
 
-          <View style={styles.settingRow}>
-            <View style={styles.settingInfo}>
-              <Ionicons name="notifications-outline" size={22} color={isDarkMode ? '#38BDF8' : '#334155'} />
-              <View style={styles.settingTexts}>
-                <Text style={[styles.settingTitle, largeFont && styles.fontLargeText, isDarkMode && styles.textWhite]}>
-                  Recordatorios Médicos
-                </Text>
-                <Text style={styles.settingSub}>Alertas para dosis y próximas citas</Text>
+            <View style={styles.optionRow}>
+              <View style={styles.optionLeft}>
+                <View style={[styles.iconBox, { backgroundColor: largeFont ? '#DCFCE7' : '#F1F5F9' }]}>
+                  <Ionicons
+                    name="text"
+                    size={26}
+                    color={largeFont ? '#16A34A' : '#64748B'}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[
+                    styles.optionTitle,
+                    isDarkMode && { color: '#F1F5F9' },
+                    largeFont && { fontSize: 22 }
+                  ]}>
+                    Texto Aumentado
+                  </Text>
+                  <Text style={[
+                    styles.optionSubtitle,
+                    isDarkMode && { color: '#94A3B8' },
+                    largeFont && { fontSize: 16 }
+                  ]}>
+                    {largeFont ? 'Letras grandes y legibles' : 'Tamaño normal'}
+                  </Text>
+                </View>
               </View>
+              <Switch
+                value={largeFont}
+                onValueChange={toggleFont}
+                trackColor={{ false: '#CBD5E1', true: '#22C55E' }}
+                thumbColor={largeFont ? '#15803D' : '#FFFFFF'}
+              />
             </View>
-            <Switch
-              value={notifications}
-              onValueChange={setNotifications}
-              trackColor={{ false: '#CBD5E1', true: '#36B9CC' }}
-            />
           </View>
-        </View>
 
-        {/* Sección: Cierre de Sesión */}
-        <Text style={styles.sectionHeader}>SEGURIDAD DE LA CUENTA</Text>
-        <View style={[styles.card, isDarkMode && styles.cardDark]}>
-          <TouchableOpacity style={styles.actionItem} onPress={handleSignOut}>
-            <Ionicons name="log-out-outline" size={22} color="#EF4444" />
-            <Text style={styles.logoutActionText}>Cerrar Sesión</Text>
-          </TouchableOpacity>
-
-          <View style={styles.divider} />
-
+          {/* Botón Salir */}
           <TouchableOpacity
-            style={styles.actionItem}
-            onPress={() => Alert.alert('Aviso', 'Función de baja definitiva en desarrollo.')}
+            style={[styles.signOutButton, isDarkMode && styles.darkSignOutButton]}
+            onPress={handleSignOut}
+            activeOpacity={0.8}
           >
-            <Ionicons name="trash-outline" size={22} color="#94A3B8" />
-            <Text style={styles.deleteActionText}>Eliminar mi cuenta y registros</Text>
+            <Ionicons name="log-out-outline" size={24} color="#EF4444" style={{ marginRight: 8 }} />
+            <Text style={[
+              styles.signOutText,
+              largeFont && { fontSize: 20 }
+            ]}>
+              {isGuest ? 'Salir del Modo Local' : 'Cerrar Sesión'}
+            </Text>
           </TouchableOpacity>
-        </View>
-      </ScrollView>
+        </ScrollView>
+
+        {/* Indicador inferior flotante accesible para saber que hay contenido abajo */}
+        {showScrollPrompt && (
+          <View pointerEvents="none" style={styles.floatingPromptContainer}>
+            <View style={[styles.floatingPromptPill, isDarkMode && styles.floatingPromptDark]}>
+              <Ionicons name="chevron-down" size={16} color={isDarkMode ? '#94A3B8' : '#475569'} />
+              <Text style={[styles.floatingPromptText, isDarkMode && { color: '#94A3B8' }]}>
+                Baja para ver más opciones
+              </Text>
+            </View>
+          </View>
+        )}
+      </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8FAFC' },
-  containerDark: { backgroundColor: '#0F172A' },
-  center: { justifyContent: 'center', alignItems: 'center' },
-  topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12 },
-  backButton: { padding: 8, borderRadius: 10 },
-  topBarTitle: { fontSize: 18, fontWeight: '700', color: '#102A43' },
-  textWhite: { color: '#F1F5F9' },
-  scrollArea: { paddingHorizontal: 20, paddingBottom: 40 },
-  userCard: { backgroundColor: '#FFF', borderRadius: 20, padding: 24, alignItems: 'center', marginVertical: 12, elevation: 2, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 8 },
-  cardDark: { backgroundColor: '#1E293B', shadowColor: '#000', shadowOpacity: 0.3 },
-  avatar: { width: 72, height: 72, borderRadius: 36, backgroundColor: '#36B9CC', justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
-  avatarText: { color: '#FFF', fontSize: 28, fontWeight: 'bold' },
-  greeting: { fontSize: 22, fontWeight: '800', color: '#102A43', marginBottom: 4 },
-  fontLargeTitle: { fontSize: 26 },
-  fontLargeText: { fontSize: 17 },
-  userEmail: { fontSize: 14, color: '#64748B', marginBottom: 12 },
-  statusBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#E0F2FE', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12, gap: 6 },
-  statusBadgeText: { color: '#0369A1', fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },
-  sectionHeader: { fontSize: 12, fontWeight: '700', color: '#64748B', marginTop: 18, marginBottom: 8, marginLeft: 4, letterSpacing: 0.5 },
-  card: { backgroundColor: '#FFF', borderRadius: 16, padding: 16, elevation: 2, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6 },
-  settingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6 },
-  settingInfo: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
-  settingTexts: { flex: 1 },
-  settingTitle: { fontSize: 15, fontWeight: '600', color: '#1E293B' },
-  settingSub: { fontSize: 12, color: '#94A3B8' },
-  divider: { height: 1, backgroundColor: '#F1F5F9', marginVertical: 10 },
-  actionItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8 },
-  logoutActionText: { fontSize: 15, fontWeight: '700', color: '#EF4444' },
-  deleteActionText: { fontSize: 14, fontWeight: '500', color: '#94A3B8' }
+  container: {
+    flex: 1,
+    backgroundColor: '#F0F4F8',
+  },
+  darkContainer: {
+    backgroundColor: '#0F172A',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+  },
+  backButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 4 },
+      android: { elevation: 2 },
+    }),
+  },
+  darkRoundBtn: {
+    backgroundColor: '#1E293B',
+  },
+  headerTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#102A43',
+  },
+  content: {
+    paddingHorizontal: 20,
+    paddingBottom: 40,
+  },
+  userCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    paddingVertical: 24,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 10 },
+      android: { elevation: 3 },
+    }),
+  },
+  darkCard: {
+    backgroundColor: '#1E293B',
+    borderColor: '#334155',
+  },
+  avatarCircle: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    backgroundColor: '#E0F2FE',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  userName: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#0F172A',
+    textAlign: 'center',
+  },
+  userEmail: {
+    fontSize: 14,
+    color: '#64748B',
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  guestWarningBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 12,
+    marginTop: 14,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  guestWarningText: {
+    color: '#92400E',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  sectionTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#64748B',
+    marginBottom: 10,
+    marginLeft: 6,
+    letterSpacing: 0.5,
+  },
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    overflow: 'hidden',
+    marginBottom: 24,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 8 },
+      android: { elevation: 2 },
+    }),
+  },
+  testCardContent: {
+    padding: 16,
+  },
+  testIconTextRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    marginBottom: 16,
+  },
+  testButton: {
+    backgroundColor: '#D97706',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  darkTestButton: {
+    backgroundColor: '#B45309',
+  },
+  testButtonDisabled: {
+    backgroundColor: '#78350F',
+    opacity: 0.8,
+  },
+  countdownRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  testButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  optionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 18,
+    paddingHorizontal: 16,
+  },
+  optionLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    flex: 1,
+    paddingRight: 10,
+  },
+  iconBox: {
+    width: 46,
+    height: 46,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  optionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  optionSubtitle: {
+    fontSize: 13,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#F1F5F9',
+  },
+  signOutButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FEE2E2',
+    paddingVertical: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#FECACA',
+  },
+  darkSignOutButton: {
+    backgroundColor: '#450A0A',
+    borderColor: '#7F1D1D',
+  },
+  signOutText: {
+    color: '#EF4444',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  floatingPromptContainer: {
+    position: 'absolute',
+    bottom: 12,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  floatingPromptPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#E2E8F0',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    opacity: 0.92,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 4 },
+      android: { elevation: 3 },
+    }),
+  },
+  floatingPromptDark: {
+    backgroundColor: '#1E293B',
+  },
+  floatingPromptText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#475569',
+  },
 });

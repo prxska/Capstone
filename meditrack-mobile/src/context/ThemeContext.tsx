@@ -1,51 +1,37 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useColorScheme } from 'react-native';
+import React, { createContext, useContext, useState } from 'react';
 
 interface ThemeContextType {
   isDarkMode: boolean;
-  setIsDarkMode: (val: boolean) => void;
   largeFont: boolean;
-  setLargeFont: (val: boolean) => void;
+  toggleTheme: () => void;
+  toggleFont: () => void;
 }
 
 const ThemeContext = createContext<ThemeContextType>({
   isDarkMode: false,
-  setIsDarkMode: () => {},
   largeFont: false,
-  setLargeFont: () => {},
+  toggleTheme: () => {},
+  toggleFont: () => {},
 });
 
-export const AppThemeProvider = ({ children }: { children: React.ReactNode }) => {
-  const systemColorScheme = useColorScheme();
-  const [isDarkMode, setDarkModeState] = useState(systemColorScheme === 'dark');
-  const [largeFont, setLargeFontState] = useState(false);
+export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [largeFont, setLargeFont] = useState(false);
 
-  useEffect(() => {
-    async function loadSavedPreferences() {
-      const savedDark = await AsyncStorage.getItem('app_dark_mode');
-      const savedFont = await AsyncStorage.getItem('app_large_font');
-      if (savedDark !== null) setDarkModeState(savedDark === 'true');
-      if (savedFont !== null) setLargeFontState(savedFont === 'true');
-    }
-    loadSavedPreferences();
-  }, []);
-
-  const setIsDarkMode = async (val: boolean) => {
-    setDarkModeState(val);
-    await AsyncStorage.setItem('app_dark_mode', String(val));
+  const toggleTheme = () => {
+    setIsDarkMode((prev) => !prev);
   };
 
-  const setLargeFont = async (val: boolean) => {
-    setLargeFontState(val);
-    await AsyncStorage.setItem('app_large_font', String(val));
+  const toggleFont = () => {
+    setLargeFont((prev) => !prev);
   };
 
   return (
-    <ThemeContext.Provider value={{ isDarkMode, setIsDarkMode, largeFont, setLargeFont }}>
+    <ThemeContext.Provider value={{ isDarkMode, largeFont, toggleTheme, toggleFont }}>
       {children}
     </ThemeContext.Provider>
   );
 };
 
 export const useTheme = () => useContext(ThemeContext);
+export default ThemeProvider;

@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   StyleSheet, View, Text, TouchableOpacity, TextInput,
-  ScrollView, Modal, Platform, Alert, ActivityIndicator
+  ScrollView, Modal, Platform, Alert, ActivityIndicator,
+  NativeSyntheticEvent, NativeScrollEvent
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -146,6 +147,9 @@ export default function App() {
   const [pickerTarget, setPickerTarget] = useState<'startDate' | 'endDate' | 'appDate' | null>(null);
   const [pickerMonth, setPickerMonth] = useState(new Date());
 
+  const [showScrollPrompt, setShowScrollPrompt] = useState(true);
+  const [showModalScrollPrompt, setShowModalScrollPrompt] = useState(true);
+
   const todayKey = useMemo(() => getChileTodayString(), []);
 
   useEffect(() => {
@@ -218,7 +222,6 @@ export default function App() {
         type: 'recipe',
       }));
 
-      // Citas con identidad exclusiva: ámbar dorado (#D97706) y diferenciación estructural
       const parsedAppointments = (appointments || []).map((a) => ({
         id: `app-${a.id}`,
         rawId: a.id,
@@ -246,6 +249,24 @@ export default function App() {
   useEffect(() => {
     fetchEvents();
   }, []);
+
+  const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const offsetY = event.nativeEvent.contentOffset.y;
+    if (offsetY > 30 && showScrollPrompt) {
+      setShowScrollPrompt(false);
+    } else if (offsetY <= 10 && !showScrollPrompt) {
+      setShowScrollPrompt(true);
+    }
+  };
+
+  const handleModalScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const offsetY = event.nativeEvent.contentOffset.y;
+    if (offsetY > 20 && showModalScrollPrompt) {
+      setShowModalScrollPrompt(false);
+    } else if (offsetY <= 10 && !showModalScrollPrompt) {
+      setShowModalScrollPrompt(true);
+    }
+  };
 
   const handleRecipeChange = (name: string, value: string) => {
     setRecipeForm((prev) => ({ ...prev, [name]: value }));
@@ -320,6 +341,7 @@ export default function App() {
       });
     }
 
+    setShowModalScrollPrompt(true);
     setIsFormOpen(true);
   };
 
@@ -449,6 +471,7 @@ export default function App() {
     } else {
       setAppointmentForm((prev) => ({ ...prev, patient: currentUserName }));
     }
+    setShowModalScrollPrompt(true);
     setIsFormOpen(true);
   };
 
@@ -488,187 +511,207 @@ export default function App() {
         </View>
       </View>
 
-      <ScrollView style={styles.mainLayout} showsVerticalScrollIndicator={false}>
-        <View style={[styles.calendarPanel, isDarkMode && { backgroundColor: '#1E293B' }]}>
-          <View style={styles.calendarActions}>
-            <TouchableOpacity
-              style={[styles.navButton, isDarkMode && { backgroundColor: '#334155' }]}
-              onPress={() => changeMonth(-1)}
-            >
-              <Text style={[styles.navButtonText, isDarkMode && { color: '#38BDF8' }]}>‹</Text>
-            </TouchableOpacity>
-
-            <Text style={[styles.monthLabel, isDarkMode && { color: '#F1F5F9' }, largeFont && { fontSize: 22 }]}>
-              {monthLabel}
-            </Text>
-
-            <TouchableOpacity
-              style={[styles.navButton, isDarkMode && { backgroundColor: '#334155' }]}
-              onPress={() => changeMonth(1)}
-            >
-              <Text style={[styles.navButtonText, isDarkMode && { color: '#38BDF8' }]}>›</Text>
-            </TouchableOpacity>
-          </View>
-
-          {loading ? (
-            <ActivityIndicator size="large" color="#36B9CC" style={{ paddingVertical: 20 }} />
-          ) : (
-            <View style={styles.calendarGrid}>
-              {weekDays.map((day) => (
-                <View key={day} style={styles.weekdayCell}>
-                  <Text style={[styles.weekdayText, isDarkMode && { color: '#94A3B8' }]}>
-                    {day}
-                  </Text>
-                </View>
-              ))}
-
-              {calendarDays.map((date, index) => {
-                const dateKey = formatDateKey(date);
-                const isCurrentMonth = date.getMonth() === selectedMonth.getMonth();
-                const isToday = dateKey === todayKey;
-
-                // Identifica eventos de receta (por rango) y citas (día específico)
-                const dayEvents = events.filter((event) => {
-                  if (event.type === 'recipe') {
-                    const start = event.date;
-                    const end = event.endDate || event.date;
-                    return dateKey >= start && dateKey <= end;
-                  }
-                  return event.date === dateKey;
-                });
-
-                return (
-                  <View
-                    key={`${dateKey}-${index}`}
-                    style={[
-                      styles.dayCell,
-                      isDarkMode && { borderColor: '#334155' },
-                      !isCurrentMonth && (isDarkMode ? { opacity: 0.25 } : styles.mutedDay),
-                    ]}
-                  >
-                    <View style={[styles.dayNumberContainer, isToday && styles.todayBadge]}>
-                      <Text
-                        style={[
-                          styles.dayNumber,
-                          isDarkMode && { color: '#F1F5F9' },
-                          isToday && styles.todayNumberText,
-                          largeFont && { fontSize: 16 },
-                        ]}
-                      >
-                        {String(date.getDate())}
-                      </Text>
-                    </View>
-
-                    {/* Eventos diferenciados: Citas tienen icono de calendario y estilo dorado */}
-                    {dayEvents.map((event) => {
-                      const isAppointment = event.type === 'appointment';
-                      return (
-                        <TouchableOpacity
-                          key={`${event.id}-${dateKey}`}
-                          style={[
-                            styles.eventPill,
-                            isAppointment
-                              ? styles.appointmentPill
-                              : { backgroundColor: event.color }
-                          ]}
-                          onPress={() => handleEditEvent(event)}
-                          activeOpacity={0.8}
-                        >
-                          {isAppointment && (
-                            <Ionicons name="calendar" size={9} color="#78350F" style={{ marginRight: 3 }} />
-                          )}
-                          <Text
-                            style={[
-                              styles.eventPillText,
-                              isAppointment && styles.appointmentPillText
-                            ]}
-                            numberOfLines={1}
-                          >
-                            {event.title}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                );
-              })}
-            </View>
-          )}
-        </View>
-
-        {/* Zona Próximas Atenciones */}
-        <View style={[styles.agendaPanel, isDarkMode && { backgroundColor: '#1E293B' }]}>
-          <View style={styles.sectionHeader}>
-            <View style={[styles.dot, { backgroundColor: '#8A2BE2' }]} />
-            <Text style={[styles.sectionTitle, isDarkMode && { color: '#F1F5F9' }, largeFont && { fontSize: 22 }]}>
-              Próximas atenciones
-            </Text>
-          </View>
-          {upcomingEvents.length === 0 && !loading && (
-            <Text style={[{ color: '#6B8E9B', fontStyle: 'italic' }, isDarkMode && { color: '#94A3B8' }]}>
-              No hay registros próximos en la base de datos.
-            </Text>
-          )}
-          {upcomingEvents.slice(0, 8).map((event) => {
-            const isAppointment = event.type === 'appointment';
-            return (
+      <View style={{ flex: 1, position: 'relative' }}>
+        <ScrollView
+          style={styles.mainLayout}
+          showsVerticalScrollIndicator={true}
+          persistentScrollbar={true}
+          indicatorStyle={isDarkMode ? 'white' : 'black'}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
+        >
+          <View style={[styles.calendarPanel, isDarkMode && { backgroundColor: '#1E293B' }]}>
+            <View style={styles.calendarActions}>
               <TouchableOpacity
-                key={event.id}
-                style={[
-                  styles.agendaItem,
-                  isAppointment && styles.appointmentAgendaCard,
-                  isDarkMode && { backgroundColor: isAppointment ? '#451A03' : '#0F172A' },
-                  isDarkMode && isAppointment && { borderColor: '#B45309' }
-                ]}
-                onPress={() => handleEditEvent(event)}
-                activeOpacity={0.7}
+                style={[styles.navButton, isDarkMode && { backgroundColor: '#334155' }]}
+                onPress={() => changeMonth(-1)}
               >
-                {/* Indicador lateral: Pastilla con color o Icono de Cita Dorada */}
-                {isAppointment ? (
-                  <View style={styles.appointmentBadgeIcon}>
-                    <Ionicons name="calendar-sharp" size={18} color="#B45309" />
-                  </View>
-                ) : (
-                  <View style={[styles.agendaBullet, { backgroundColor: event.color }]} />
-                )}
-
-                <View style={styles.agendaInfo}>
-                  <View style={styles.agendaTitleRow}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 6 }}>
-                      {isAppointment && (
-                        <View style={styles.appointmentTag}>
-                          <Text style={styles.appointmentTagText}>CITA MÉDICA</Text>
-                        </View>
-                      )}
-                      <Text
-                        style={[
-                          styles.agendaTitle,
-                          isAppointment && { color: isDarkMode ? '#FDE68A' : '#92400E' },
-                          isDarkMode && !isAppointment && { color: '#F1F5F9' },
-                          largeFont && { fontSize: 18 }
-                        ]}
-                        numberOfLines={1}
-                      >
-                        {event.title}
-                      </Text>
-                    </View>
-                    <Ionicons
-                      name="pencil-sharp"
-                      size={16}
-                      color={isAppointment ? '#D97706' : isDarkMode ? '#38BDF8' : '#36B9CC'}
-                    />
-                  </View>
-                  <Text style={[styles.agendaTime, isDarkMode && { color: '#94A3B8' }, largeFont && { fontSize: 15 }]}>
-                    {event.type === 'recipe' && event.colorName ? `Envase/Pastilla: ${event.colorName} • ` : ''}
-                    {event.time} - {event.date} {event.endDate ? `al ${event.endDate}` : ''} ({event.patient})
-                    {event.location ? ` • Lugar: ${event.location}` : ''}
-                  </Text>
-                </View>
+                <Text style={[styles.navButtonText, isDarkMode && { color: '#38BDF8' }]}>‹</Text>
               </TouchableOpacity>
-            );
-          })}
-        </View>
-      </ScrollView>
+
+              <Text style={[styles.monthLabel, isDarkMode && { color: '#F1F5F9' }, largeFont && { fontSize: 22 }]}>
+                {monthLabel}
+              </Text>
+
+              <TouchableOpacity
+                style={[styles.navButton, isDarkMode && { backgroundColor: '#334155' }]}
+                onPress={() => changeMonth(1)}
+              >
+                <Text style={[styles.navButtonText, isDarkMode && { color: '#38BDF8' }]}>›</Text>
+              </TouchableOpacity>
+            </View>
+
+            {loading ? (
+              <ActivityIndicator size="large" color="#36B9CC" style={{ paddingVertical: 20 }} />
+            ) : (
+              <View style={styles.calendarGrid}>
+                {weekDays.map((day) => (
+                  <View key={day} style={styles.weekdayCell}>
+                    <Text style={[styles.weekdayText, isDarkMode && { color: '#94A3B8' }]}>
+                      {day}
+                    </Text>
+                  </View>
+                ))}
+
+                {calendarDays.map((date, index) => {
+                  const dateKey = formatDateKey(date);
+                  const isCurrentMonth = date.getMonth() === selectedMonth.getMonth();
+                  const isToday = dateKey === todayKey;
+
+                  const dayEvents = events.filter((event) => {
+                    if (event.type === 'recipe') {
+                      const start = event.date;
+                      const end = event.endDate || event.date;
+                      return dateKey >= start && dateKey <= end;
+                    }
+                    return event.date === dateKey;
+                  });
+
+                  return (
+                    <View
+                      key={`${dateKey}-${index}`}
+                      style={[
+                        styles.dayCell,
+                        isDarkMode && { borderColor: '#334155' },
+                        !isCurrentMonth && (isDarkMode ? { opacity: 0.25 } : styles.mutedDay),
+                      ]}
+                    >
+                      <View style={[styles.dayNumberContainer, isToday && styles.todayBadge]}>
+                        <Text
+                          style={[
+                            styles.dayNumber,
+                            isDarkMode && { color: '#F1F5F9' },
+                            isToday && styles.todayNumberText,
+                            largeFont && { fontSize: 16 },
+                          ]}
+                        >
+                          {String(date.getDate())}
+                        </Text>
+                      </View>
+
+                      {dayEvents.map((event) => {
+                        const isAppointment = event.type === 'appointment';
+                        return (
+                          <TouchableOpacity
+                            key={`${event.id}-${dateKey}`}
+                            style={[
+                              styles.eventPill,
+                              isAppointment
+                                ? styles.appointmentPill
+                                : { backgroundColor: event.color }
+                            ]}
+                            onPress={() => handleEditEvent(event)}
+                            activeOpacity={0.8}
+                          >
+                            {isAppointment && (
+                              <Ionicons name="calendar" size={9} color="#78350F" style={{ marginRight: 3 }} />
+                            )}
+                            <Text
+                              style={[
+                                styles.eventPillText,
+                                isAppointment && styles.appointmentPillText
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {event.title}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+          </View>
+
+          {/* Zona Próximas Atenciones */}
+          <View style={[styles.agendaPanel, isDarkMode && { backgroundColor: '#1E293B' }]}>
+            <View style={styles.sectionHeader}>
+              <View style={[styles.dot, { backgroundColor: '#8A2BE2' }]} />
+              <Text style={[styles.sectionTitle, isDarkMode && { color: '#F1F5F9' }, largeFont && { fontSize: 22 }]}>
+                Próximas atenciones
+              </Text>
+            </View>
+            {upcomingEvents.length === 0 && !loading && (
+              <Text style={[{ color: '#6B8E9B', fontStyle: 'italic' }, isDarkMode && { color: '#94A3B8' }]}>
+                No hay registros próximos en la base de datos.
+              </Text>
+            )}
+            {upcomingEvents.slice(0, 8).map((event) => {
+              const isAppointment = event.type === 'appointment';
+              return (
+                <TouchableOpacity
+                  key={event.id}
+                  style={[
+                    styles.agendaItem,
+                    isAppointment && styles.appointmentAgendaCard,
+                    isDarkMode && { backgroundColor: isAppointment ? '#451A03' : '#0F172A' },
+                    isDarkMode && isAppointment && { borderColor: '#B45309' }
+                  ]}
+                  onPress={() => handleEditEvent(event)}
+                  activeOpacity={0.7}
+                >
+                  {isAppointment ? (
+                    <View style={styles.appointmentBadgeIcon}>
+                      <Ionicons name="calendar-sharp" size={18} color="#B45309" />
+                    </View>
+                  ) : (
+                    <View style={[styles.agendaBullet, { backgroundColor: event.color }]} />
+                  )}
+
+                  <View style={styles.agendaInfo}>
+                    <View style={styles.agendaTitleRow}>
+                      <View style={styles.agendaTitleLeft}>
+                        {isAppointment && (
+                          <View style={styles.appointmentTag}>
+                            <Text style={styles.appointmentTagText}>CITA MÉDICA</Text>
+                          </View>
+                        )}
+                        <Text
+                          style={[
+                            styles.agendaTitle,
+                            isAppointment && { color: isDarkMode ? '#FDE68A' : '#92400E' },
+                            isDarkMode && !isAppointment && { color: '#F1F5F9' },
+                            largeFont && { fontSize: 18 }
+                          ]}
+                          numberOfLines={1}
+                          ellipsizeMode="tail"
+                        >
+                          {event.title}
+                        </Text>
+                      </View>
+                      <Ionicons
+                        name="pencil-sharp"
+                        size={16}
+                        color={isAppointment ? '#D97706' : isDarkMode ? '#38BDF8' : '#36B9CC'}
+                        style={styles.agendaPencilIcon}
+                      />
+                    </View>
+                    <Text style={[styles.agendaTime, isDarkMode && { color: '#94A3B8' }, largeFont && { fontSize: 15 }]}>
+                      {event.type === 'recipe' && event.colorName ? `Envase/Pastilla: ${event.colorName} • ` : ''}
+                      {event.time} - {event.date} {event.endDate ? `al ${event.endDate}` : ''} ({event.patient})
+                      {event.location ? ` • Lugar: ${event.location}` : ''}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </ScrollView>
+
+        {/* Indicador inferior accesible para avisar que queda contenido */}
+        {showScrollPrompt && (
+          <View pointerEvents="none" style={styles.floatingPromptContainer}>
+            <View style={[styles.floatingPromptPill, isDarkMode && styles.floatingPromptDark]}>
+              <Ionicons name="chevron-down" size={16} color={isDarkMode ? '#94A3B8' : '#475569'} />
+              <Text style={[styles.floatingPromptText, isDarkMode && { color: '#94A3B8' }]}>
+                Baja para ver más atenciones
+              </Text>
+            </View>
+          </View>
+        )}
+      </View>
 
       {/* Modal de Ingreso / Edición */}
       <Modal visible={isFormOpen} transparent={true} animationType="slide">
@@ -692,278 +735,299 @@ export default function App() {
               </TouchableOpacity>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false}>
-              <View style={styles.formGroup}>
-                {formType === 'recipe' ? (
-                  <>
-                    <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Paciente</Text>
-                    <View style={[styles.readOnlyUserBox, isDarkMode && styles.darkReadOnlyBox]}>
-                      <Ionicons name="person-circle" size={24} color="#36B9CC" style={{ marginRight: 8 }} />
-                      <Text style={[styles.readOnlyUserText, isDarkMode && styles.darkText]}>
-                        {currentUserName || 'Cargando...'}
-                      </Text>
-                    </View>
-
-                    <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Medicamento</Text>
-                    <TextInput
-                      style={[styles.input, isDarkMode && styles.darkInput]}
-                      placeholder="Ej. Paracetamol"
-                      placeholderTextColor="#94A3B8"
-                      value={recipeForm.medication}
-                      onChangeText={(t) => handleRecipeChange('medication', t)}
-                    />
-
-                    <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Forma de administración</Text>
-                    <View style={styles.unitSelectorGrid}>
-                      {DOSE_UNITS.map((u) => {
-                        const isSelected = doseUnit === u.id;
-                        return (
-                          <TouchableOpacity
-                            key={u.id}
-                            style={[
-                              styles.unitOptionCard,
-                              isDarkMode && styles.darkUnitCard,
-                              isSelected && styles.unitOptionSelected
-                            ]}
-                            onPress={() => setDoseUnit(u.id as any)}
-                          >
-                            <Ionicons
-                              name={u.icon as any}
-                              size={20}
-                              color={isSelected ? '#FFF' : isDarkMode ? '#38BDF8' : '#36B9CC'}
-                            />
-                            <Text style={[styles.unitOptionText, isSelected && { color: '#FFF' }]}>
-                              {u.label}
-                            </Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
-
-                    <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>
-                      Color pastilla/envase: <Text style={{ color: selectedColor.id, fontWeight: 'bold' }}>{selectedColor.name}</Text>
-                    </Text>
-                    <View style={styles.colorPaletteRow}>
-                      {PILL_COLORS.map((c) => {
-                        const isChosen = selectedColor.id === c.id;
-                        return (
-                          <TouchableOpacity
-                            key={c.id}
-                            style={[
-                              styles.colorCircle,
-                              { backgroundColor: c.id },
-                              isChosen && styles.colorCircleActive
-                            ]}
-                            onPress={() => setSelectedColor(c)}
-                          />
-                        );
-                      })}
-                    </View>
-
-                    <View style={styles.row}>
-                      <View style={styles.halfWidth}>
-                        <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>
-                          Cantidad ({doseUnit})
+            <View style={{ flexShrink: 1, position: 'relative' }}>
+              <ScrollView
+                showsVerticalScrollIndicator={true}
+                persistentScrollbar={true}
+                indicatorStyle={isDarkMode ? 'white' : 'black'}
+                onScroll={handleModalScroll}
+                scrollEventThrottle={16}
+                contentContainerStyle={{ paddingBottom: 35 }}
+              >
+                <View style={styles.formGroup}>
+                  {formType === 'recipe' ? (
+                    <>
+                      <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Paciente</Text>
+                      <View style={[styles.readOnlyUserBox, isDarkMode && styles.darkReadOnlyBox]}>
+                        <Ionicons name="person-circle" size={24} color="#36B9CC" style={{ marginRight: 8 }} />
+                        <Text style={[styles.readOnlyUserText, isDarkMode && styles.darkText]}>
+                          {currentUserName || 'Cargando...'}
                         </Text>
-                        <TextInput
-                          style={[styles.input, isDarkMode && styles.darkInput]}
-                          placeholder="Ej. 1"
-                          placeholderTextColor="#94A3B8"
-                          keyboardType="numeric"
-                          value={doseAmount}
-                          onChangeText={setDoseAmount}
-                        />
                       </View>
-                      <View style={styles.halfWidth}>
-                        <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Primera toma (HH:MM)</Text>
-                        <TextInput
-                          style={[styles.input, isDarkMode && styles.darkInput]}
-                          placeholder="08:00"
-                          placeholderTextColor="#94A3B8"
-                          value={recipeForm.startTime}
-                          onChangeText={(t) => handleRecipeChange('startTime', t)}
-                        />
-                      </View>
-                    </View>
 
-                    <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>
-                      Frecuencia de toma
-                    </Text>
-                    <View style={styles.frequencyRow}>
-                      {FREQUENCY_OPTIONS.map((f) => {
-                        const isSelected = selectedInterval === f.id;
-                        return (
+                      <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Medicamento</Text>
+                      <TextInput
+                        style={[styles.input, isDarkMode && styles.darkInput]}
+                        placeholder="Ej. Paracetamol"
+                        placeholderTextColor="#94A3B8"
+                        value={recipeForm.medication}
+                        onChangeText={(t) => handleRecipeChange('medication', t)}
+                      />
+
+                      <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Forma de administración</Text>
+                      <View style={styles.unitSelectorGrid}>
+                        {DOSE_UNITS.map((u) => {
+                          const isSelected = doseUnit === u.id;
+                          return (
+                            <TouchableOpacity
+                              key={u.id}
+                              style={[
+                                styles.unitOptionCard,
+                                isDarkMode && styles.darkUnitCard,
+                                isSelected && styles.unitOptionSelected
+                              ]}
+                              onPress={() => setDoseUnit(u.id as any)}
+                            >
+                              <Ionicons
+                                name={u.icon as any}
+                                size={20}
+                                color={isSelected ? '#FFF' : isDarkMode ? '#38BDF8' : '#36B9CC'}
+                              />
+                              <Text style={[styles.unitOptionText, isSelected && { color: '#FFF' }]}>
+                                {u.label}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+
+                      <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>
+                        Color pastilla/envase: <Text style={{ color: selectedColor.id, fontWeight: 'bold' }}>{selectedColor.name}</Text>
+                      </Text>
+                      <View style={styles.colorPaletteRow}>
+                        {PILL_COLORS.map((c) => {
+                          const isChosen = selectedColor.id === c.id;
+                          return (
+                            <TouchableOpacity
+                              key={c.id}
+                              style={[
+                                styles.colorCircle,
+                                { backgroundColor: c.id },
+                                isChosen && styles.colorCircleActive
+                              ]}
+                              onPress={() => setSelectedColor(c)}
+                            />
+                          );
+                        })}
+                      </View>
+
+                      <View style={styles.row}>
+                        <View style={styles.halfWidth}>
+                          <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>
+                            Cantidad ({doseUnit})
+                          </Text>
+                          <TextInput
+                            style={[styles.input, isDarkMode && styles.darkInput]}
+                            placeholder="Ej. 1"
+                            placeholderTextColor="#94A3B8"
+                            keyboardType="numeric"
+                            value={doseAmount}
+                            onChangeText={setDoseAmount}
+                          />
+                        </View>
+                        <View style={styles.halfWidth}>
+                          <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Primera toma (HH:MM)</Text>
+                          <TextInput
+                            style={[styles.input, isDarkMode && styles.darkInput]}
+                            placeholder="08:00"
+                            placeholderTextColor="#94A3B8"
+                            value={recipeForm.startTime}
+                            onChangeText={(t) => handleRecipeChange('startTime', t)}
+                          />
+                        </View>
+                      </View>
+
+                      <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>
+                        Frecuencia de toma
+                      </Text>
+                      <View style={styles.frequencyRow}>
+                        {FREQUENCY_OPTIONS.map((f) => {
+                          const isSelected = selectedInterval === f.id;
+                          return (
+                            <TouchableOpacity
+                              key={f.id}
+                              style={[
+                                styles.freqChip,
+                                isDarkMode && styles.darkFreqChip,
+                                isSelected && styles.freqChipSelected,
+                              ]}
+                              onPress={() => {
+                                setSelectedInterval(f.id);
+                                handleRecipeChange('frequency', f.label);
+                              }}
+                            >
+                              <Text style={[styles.freqChipText, isSelected && { color: '#FFF' }]}>
+                                {f.label}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+
+                      <View style={[styles.schedulePreviewBox, isDarkMode && styles.darkScheduleBox]}>
+                        <Ionicons name="time-outline" size={18} color={isDarkMode ? '#38BDF8' : '#0284C7'} />
+                        <Text style={[styles.schedulePreviewText, isDarkMode && { color: '#F1F5F9' }]}>
+                          Tomas al día: {calculateDoseTimes(recipeForm.startTime, selectedInterval).join('  •  ')}
+                        </Text>
+                      </View>
+
+                      <View style={styles.row}>
+                        <View style={styles.halfWidth}>
+                          <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Desde (Inicio)</Text>
                           <TouchableOpacity
-                            key={f.id}
-                            style={[
-                              styles.freqChip,
-                              isDarkMode && styles.darkFreqChip,
-                              isSelected && styles.freqChipSelected,
-                            ]}
-                            onPress={() => {
-                              setSelectedInterval(f.id);
-                              handleRecipeChange('frequency', f.label);
-                            }}
+                            style={[styles.dateTriggerButton, isDarkMode && styles.darkDateTrigger]}
+                            onPress={() => openPickerModal('startDate')}
                           >
-                            <Text style={[styles.freqChipText, isSelected && { color: '#FFF' }]}>
-                              {f.label}
+                            <Ionicons name="calendar-outline" size={18} color="#36B9CC" />
+                            <Text style={[styles.dateTriggerText, isDarkMode && { color: '#F1F5F9' }]}>
+                              {recipeForm.startDate}
                             </Text>
                           </TouchableOpacity>
-                        );
-                      })}
-                    </View>
+                        </View>
 
-                    <View style={[styles.schedulePreviewBox, isDarkMode && styles.darkScheduleBox]}>
-                      <Ionicons name="time-outline" size={18} color={isDarkMode ? '#38BDF8' : '#0284C7'} />
-                      <Text style={[styles.schedulePreviewText, isDarkMode && { color: '#F1F5F9' }]}>
-                        Tomas al día: {calculateDoseTimes(recipeForm.startTime, selectedInterval).join('  •  ')}
+                        <View style={styles.halfWidth}>
+                          <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Hasta (Término)</Text>
+                          <TouchableOpacity
+                            style={[styles.dateTriggerButton, isDarkMode && styles.darkDateTrigger]}
+                            onPress={() => openPickerModal('endDate')}
+                          >
+                            <Ionicons name="calendar-outline" size={18} color="#36B9CC" />
+                            <Text style={[styles.dateTriggerText, isDarkMode && { color: '#F1F5F9' }]}>
+                              {recipeForm.endDate}
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+
+                      <Text style={[styles.miniSubLabel, isDarkMode && styles.darkSubtext]}>
+                        Duración rápida del tratamiento:
                       </Text>
-                    </View>
-
-                    <View style={styles.row}>
-                      <View style={styles.halfWidth}>
-                        <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Desde (Inicio)</Text>
-                        <TouchableOpacity
-                          style={[styles.dateTriggerButton, isDarkMode && styles.darkDateTrigger]}
-                          onPress={() => openPickerModal('startDate')}
-                        >
-                          <Ionicons name="calendar-outline" size={18} color="#36B9CC" />
-                          <Text style={[styles.dateTriggerText, isDarkMode && { color: '#F1F5F9' }]}>
-                            {recipeForm.startDate}
-                          </Text>
-                        </TouchableOpacity>
+                      <View style={styles.quickDurationRow}>
+                        {[
+                          { label: '3 días', days: 3 },
+                          { label: '5 días', days: 5 },
+                          { label: '7 días', days: 7 },
+                          { label: '14 días', days: 14 },
+                          { label: '30 días', days: 30 },
+                        ].map((d) => (
+                          <TouchableOpacity
+                            key={d.days}
+                            style={[styles.durationChip, isDarkMode && styles.darkDurationChip]}
+                            onPress={() => handleRecipeChange('endDate', addDaysToDate(recipeForm.startDate, d.days))}
+                          >
+                            <Text style={[styles.durationChipText, isDarkMode && { color: '#38BDF8' }]}>
+                              +{d.label}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
                       </View>
-
-                      <View style={styles.halfWidth}>
-                        <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Hasta (Término)</Text>
-                        <TouchableOpacity
-                          style={[styles.dateTriggerButton, isDarkMode && styles.darkDateTrigger]}
-                          onPress={() => openPickerModal('endDate')}
-                        >
-                          <Ionicons name="calendar-outline" size={18} color="#36B9CC" />
-                          <Text style={[styles.dateTriggerText, isDarkMode && { color: '#F1F5F9' }]}>
-                            {recipeForm.endDate}
-                          </Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-
-                    <Text style={[styles.miniSubLabel, isDarkMode && styles.darkSubtext]}>
-                      Duración rápida del tratamiento:
-                    </Text>
-                    <View style={styles.quickDurationRow}>
-                      {[
-                        { label: '3 días', days: 3 },
-                        { label: '5 días', days: 5 },
-                        { label: '7 días', days: 7 },
-                        { label: '14 días', days: 14 },
-                        { label: '30 días', days: 30 },
-                      ].map((d) => (
-                        <TouchableOpacity
-                          key={d.days}
-                          style={[styles.durationChip, isDarkMode && styles.darkDurationChip]}
-                          onPress={() => handleRecipeChange('endDate', addDaysToDate(recipeForm.startDate, d.days))}
-                        >
-                          <Text style={[styles.durationChipText, isDarkMode && { color: '#38BDF8' }]}>
-                            +{d.label}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  </>
-                ) : (
-                  <>
-                    <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Paciente</Text>
-                    <View style={[styles.readOnlyUserBox, isDarkMode && styles.darkReadOnlyBox]}>
-                      <Ionicons name="person-circle" size={24} color="#D97706" style={{ marginRight: 8 }} />
-                      <Text style={[styles.readOnlyUserText, isDarkMode && styles.darkText]}>
-                        {currentUserName || 'Cargando...'}
-                      </Text>
-                    </View>
-
-                    <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Médico Tratante</Text>
-                    <TextInput
-                      style={[styles.input, isDarkMode && styles.darkInput]}
-                      placeholder="Ej. Dra. Gómez"
-                      placeholderTextColor="#94A3B8"
-                      value={appointmentForm.doctor}
-                      onChangeText={(t) => handleAppointmentChange('doctor', t)}
-                    />
-
-                    <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Especialidad</Text>
-                    <TextInput
-                      style={[styles.input, isDarkMode && styles.darkInput]}
-                      placeholder="Ej. Cardiología / Control general"
-                      placeholderTextColor="#94A3B8"
-                      value={appointmentForm.specialty}
-                      onChangeText={(t) => handleAppointmentChange('specialty', t)}
-                    />
-
-                    <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Lugar o Centro Médico</Text>
-                    <TextInput
-                      style={[styles.input, isDarkMode && styles.darkInput]}
-                      placeholder="Ej. Hospital Puerto Montt / Box 4"
-                      placeholderTextColor="#94A3B8"
-                      value={appointmentForm.location}
-                      onChangeText={(t) => handleAppointmentChange('location', t)}
-                    />
-
-                    <View style={styles.row}>
-                      <View style={styles.halfWidth}>
-                        <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Fecha Cita</Text>
-                        <TouchableOpacity
-                          style={[styles.dateTriggerButton, isDarkMode && styles.darkDateTrigger]}
-                          onPress={() => openPickerModal('appDate')}
-                        >
-                          <Ionicons name="calendar-outline" size={18} color="#D97706" />
-                          <Text style={[styles.dateTriggerText, isDarkMode && { color: '#F1F5F9' }]}>
-                            {appointmentForm.date}
-                          </Text>
-                        </TouchableOpacity>
-                      </View>
-                      <View style={styles.halfWidth}>
-                        <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Hora (HH:MM)</Text>
-                        <TextInput
-                          style={[styles.input, isDarkMode && styles.darkInput]}
-                          placeholder="10:00"
-                          placeholderTextColor="#94A3B8"
-                          value={appointmentForm.time}
-                          onChangeText={(t) => handleAppointmentChange('time', t)}
-                        />
-                      </View>
-                    </View>
-                  </>
-                )}
-
-                <TouchableOpacity
-                  style={[
-                    styles.submitButton,
-                    formType === 'appointment' && { backgroundColor: '#D97706' }
-                  ]}
-                  onPress={handleSubmit}
-                  disabled={saving}
-                >
-                  {saving ? (
-                    <ActivityIndicator color="#FFF" />
+                    </>
                   ) : (
-                    <Text style={styles.submitButtonText}>
-                      {editingId ? 'Actualizar en Supabase' : 'Guardar en Supabase'}
-                    </Text>
-                  )}
-                </TouchableOpacity>
+                    <>
+                      <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Paciente</Text>
+                      <View style={[styles.readOnlyUserBox, isDarkMode && styles.darkReadOnlyBox]}>
+                        <Ionicons name="person-circle" size={24} color="#D97706" style={{ marginRight: 8 }} />
+                        <Text style={[styles.readOnlyUserText, isDarkMode && styles.darkText]}>
+                          {currentUserName || 'Cargando...'}
+                        </Text>
+                      </View>
 
-                {editingId && (
+                      <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Médico Tratante</Text>
+                      <TextInput
+                        style={[styles.input, isDarkMode && styles.darkInput]}
+                        placeholder="Ej. Dra. Gómez"
+                        placeholderTextColor="#94A3B8"
+                        value={appointmentForm.doctor}
+                        onChangeText={(t) => handleAppointmentChange('doctor', t)}
+                      />
+
+                      <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Especialidad</Text>
+                      <TextInput
+                        style={[styles.input, isDarkMode && styles.darkInput]}
+                        placeholder="Ej. Cardiología / Control general"
+                        placeholderTextColor="#94A3B8"
+                        value={appointmentForm.specialty}
+                        onChangeText={(t) => handleAppointmentChange('specialty', t)}
+                      />
+
+                      <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Lugar o Centro Médico</Text>
+                      <TextInput
+                        style={[styles.input, isDarkMode && styles.darkInput]}
+                        placeholder="Ej. Hospital Puerto Montt / Box 4"
+                        placeholderTextColor="#94A3B8"
+                        value={appointmentForm.location}
+                        onChangeText={(t) => handleAppointmentChange('location', t)}
+                      />
+
+                      <View style={styles.row}>
+                        <View style={styles.halfWidth}>
+                          <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Fecha Cita</Text>
+                          <TouchableOpacity
+                            style={[styles.dateTriggerButton, isDarkMode && styles.darkDateTrigger]}
+                            onPress={() => openPickerModal('appDate')}
+                          >
+                            <Ionicons name="calendar-outline" size={18} color="#D97706" />
+                            <Text style={[styles.dateTriggerText, isDarkMode && { color: '#F1F5F9' }]}>
+                              {appointmentForm.date}
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                        <View style={styles.halfWidth}>
+                          <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Hora (HH:MM)</Text>
+                          <TextInput
+                            style={[styles.input, isDarkMode && styles.darkInput]}
+                            placeholder="10:00"
+                            placeholderTextColor="#94A3B8"
+                            value={appointmentForm.time}
+                            onChangeText={(t) => handleAppointmentChange('time', t)}
+                          />
+                        </View>
+                      </View>
+                    </>
+                  )}
+
                   <TouchableOpacity
-                    style={[styles.deleteButton, saving && { opacity: 0.5 }]}
-                    onPress={handleDelete}
+                    style={[
+                      styles.submitButton,
+                      formType === 'appointment' && { backgroundColor: '#D97706' }
+                    ]}
+                    onPress={handleSubmit}
                     disabled={saving}
                   >
-                    <Ionicons name="trash-outline" size={18} color="#EF4444" style={{ marginRight: 6 }} />
-                    <Text style={styles.deleteButtonText}>Eliminar este registro</Text>
+                    {saving ? (
+                      <ActivityIndicator color="#FFF" />
+                    ) : (
+                      <Text style={styles.submitButtonText}>
+                        {editingId ? 'Actualizar en Supabase' : 'Guardar en Supabase'}
+                      </Text>
+                    )}
                   </TouchableOpacity>
-                )}
-              </View>
-            </ScrollView>
+
+                  {editingId && (
+                    <TouchableOpacity
+                      style={[styles.deleteButton, saving && { opacity: 0.5 }]}
+                      onPress={handleDelete}
+                      disabled={saving}
+                    >
+                      <Ionicons name="trash-outline" size={18} color="#EF4444" style={{ marginRight: 6 }} />
+                      <Text style={styles.deleteButtonText}>Eliminar este registro</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </ScrollView>
+
+              {/* Indicador flotante en el modal para avisar que falta contenido por ver */}
+              {showModalScrollPrompt && (
+                <View pointerEvents="none" style={styles.floatingPromptContainer}>
+                  <View style={[styles.floatingPromptPill, isDarkMode && styles.floatingPromptDark]}>
+                    <Ionicons name="chevron-down" size={16} color={isDarkMode ? '#94A3B8' : '#475569'} />
+                    <Text style={[styles.floatingPromptText, isDarkMode && { color: '#94A3B8' }]}>
+                      Baja para ver más datos y guardar
+                    </Text>
+                  </View>
+                </View>
+              )}
+            </View>
           </View>
         </View>
       </Modal>
@@ -1183,19 +1247,20 @@ const styles = StyleSheet.create({
     color: '#78350F',
     fontWeight: '800',
   },
-  agendaPanel: { backgroundColor: '#FFF', borderRadius: 20, padding: 20, marginBottom: 30 },
+  agendaPanel: { backgroundColor: '#FFF', borderRadius: 20, padding: 20, marginBottom: 40 },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 15 },
   dot: { width: 10, height: 10, borderRadius: 5, marginRight: 10 },
   sectionTitle: { fontSize: 18, fontWeight: 'bold', color: '#102A43' },
   agendaItem: {
     backgroundColor: '#F9FBFC',
     flexDirection: 'row',
-    padding: 15,
-    borderRadius: 12,
+    padding: 14,
+    borderRadius: 14,
     marginBottom: 10,
     alignItems: 'center',
     borderWidth: 1,
     borderColor: '#F1F5F9',
+    overflow: 'hidden',
   },
   appointmentAgendaCard: {
     backgroundColor: '#FFFBEB',
@@ -1225,13 +1290,33 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   agendaBullet: { width: 15, height: 15, borderRadius: 7.5, marginRight: 15 },
-  agendaInfo: { flex: 1 },
+  agendaInfo: {
+    flex: 1,
+    minWidth: 0,
+  },
   agendaTitleRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    width: '100%',
   },
-  agendaTitle: { fontSize: 16, fontWeight: 'bold', color: '#102A43' },
+  agendaTitleLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+    minWidth: 0,
+  },
+  agendaTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#102A43',
+    flexShrink: 1,
+  },
+  agendaPencilIcon: {
+    marginLeft: 8,
+    flexShrink: 0,
+  },
   agendaTime: { fontSize: 14, color: '#6B8E9B', marginTop: 2 },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   modalPanel: {
@@ -1484,5 +1569,34 @@ const styles = StyleSheet.create({
   pickerDayNumber: {
     fontSize: 13,
     color: '#102A43',
+  },
+  floatingPromptContainer: {
+    position: 'absolute',
+    bottom: 12,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  floatingPromptPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#E2E8F0',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    opacity: 0.92,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 4 },
+      android: { elevation: 3 },
+    }),
+  },
+  floatingPromptDark: {
+    backgroundColor: '#1E293B',
+  },
+  floatingPromptText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#475569',
   },
 });

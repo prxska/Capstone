@@ -1,57 +1,80 @@
-import { DarkTheme, DefaultTheme, ThemeProvider, Stack, useRouter, useSegments } from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { Stack, useRouter, useSegments } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
 import { supabase } from '../lib/supabase';
-import { AnimatedSplashOverlay } from '@/components/animated-icon';
-import { AppThemeProvider, useTheme } from '../context/ThemeContext';
+import { LocalAuth } from '../lib/storage';
+import { ThemeProvider, useTheme } from '../context/ThemeContext';
+import { AlarmProvider } from '../context/AlarmContext';
 
-SplashScreen.preventAutoHideAsync();
-
-function RootNavigationLayout() {
-  const { isDarkMode } = useTheme();
-  const [session, setSession] = useState<any>(null);
-  const [isAuthReady, setIsAuthReady] = useState(false);
-
-  const segments = useSegments();
+function RootNavigation() {
   const router = useRouter();
+  const segments = useSegments();
+  const { isDarkMode } = useTheme();
+  const [isAuthLoaded, setIsAuthLoaded] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setIsAuthReady(true);
-    });
+    let isMounted = true;
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, currentSession) => {
-      setSession(currentSession);
-    });
+    async function evaluateAuth() {
+      try {
+        const isGuest = await LocalAuth.isGuestMode();
+        const { data: { session } } = await supabase.auth.getSession();
 
-    return () => subscription.unsubscribe();
-  }, []);
+        if (!isMounted) return;
 
-  useEffect(() => {
-    if (!isAuthReady) return;
+        const currentSegment = segments[0] || '';
+        const hasAccess = !!session || isGuest;
 
-    const isLoginScreen = (segments[0] as string) === 'login';
-
-    if (!session && !isLoginScreen) {
-      router.replace('/login' as any);
-    } else if (session && isLoginScreen) {
-      router.replace('/' as any);
+        if (!hasAccess && currentSegment !== 'login') {
+          router.replace('/login' as any);
+        } else if (hasAccess && currentSegment === 'login') {
+          router.replace('/' as any);
+        }
+      } catch (err) {
+        console.error('Error al evaluar autenticación:', err);
+      } finally {
+        if (isMounted) setIsAuthLoaded(true);
+      }
     }
-  }, [session, isAuthReady, segments]);
+
+    evaluateAuth();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      const isGuest = await LocalAuth.isGuestMode();
+      const currentSegment = segments[0] || '';
+      const hasAccess = !!session || isGuest;
+
+      if (!hasAccess && currentSegment !== 'login') {
+        router.replace('/login' as any);
+      } else if (hasAccess && currentSegment === 'login') {
+        router.replace('/' as any);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      authListener.subscription.unsubscribe();
+    };
+  }, [segments]);
 
   return (
-    <ThemeProvider value={isDarkMode ? DarkTheme : DefaultTheme}>
-      <AnimatedSplashOverlay />
-      <Stack screenOptions={{ headerShown: false }} />
-    </ThemeProvider>
+    <>
+      <StatusBar style={isDarkMode ? 'light' : 'dark'} />
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="index" />
+        <Stack.Screen name="login" />
+        <Stack.Screen name="profile" />
+      </Stack>
+    </>
   );
 }
 
 export default function RootLayout() {
   return (
-    <AppThemeProvider>
-      <RootNavigationLayout />
-    </AppThemeProvider>
+    <ThemeProvider>
+      <AlarmProvider>
+        <RootNavigation />
+      </AlarmProvider>
+    </ThemeProvider>
   );
 }

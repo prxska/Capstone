@@ -4,14 +4,19 @@ import {
   Text, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { supabase } from '../lib/supabase';
+import { LocalAuth } from '../lib/storage';
 import { Ionicons } from '@expo/vector-icons';
 
 export default function LoginScreen() {
+  const router = useRouter();
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [isLogin, setIsLogin] = useState(true);
 
@@ -20,12 +25,39 @@ export default function LoginScreen() {
     setPassword('');
     setConfirmPassword('');
     setFullName('');
+    setShowPassword(false);
+    setShowConfirmPassword(false);
   }
 
   function handleSwitchMode() {
     resetForm();
     setIsLogin(!isLogin);
   }
+
+  const handleGuestMode = () => {
+    Alert.alert(
+      'Uso en modo local',
+      'Tus recetas y citas se guardarán únicamente en este teléfono. Si desinstalas la aplicación o cambias de dispositivo, no podrás recuperar tus registros a menos que vincules una cuenta.',
+      [
+        { text: 'Volver', style: 'cancel' },
+        {
+          text: 'Comenzar sin cuenta',
+          style: 'default',
+          onPress: async () => {
+            try {
+              setLoading(true);
+              await LocalAuth.setGuestMode(true);
+              router.replace('/');
+            } catch (err: any) {
+              Alert.alert('Error', 'No se pudo iniciar el modo local: ' + err.message);
+            } finally {
+              setLoading(false);
+            }
+          }
+        }
+      ]
+    );
+  };
 
   async function handleAuth() {
     if (!email.trim() || !password.trim()) {
@@ -55,7 +87,12 @@ export default function LoginScreen() {
         email: email.trim(),
         password
       });
-      if (error) Alert.alert('Error al iniciar sesión', error.message);
+      if (error) {
+        Alert.alert('Error al iniciar sesión', error.message);
+      } else {
+        await LocalAuth.setGuestMode(false);
+        router.replace('/');
+      }
     } else {
       const { error } = await supabase.auth.signUp({
         email: email.trim(),
@@ -90,12 +127,11 @@ export default function LoginScreen() {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Header Visual */}
           <View style={styles.brandWrap}>
             <View style={[styles.brandMark, !isLogin && styles.brandMarkRegister]}>
               <Ionicons
                 name={isLogin ? "medical" : "person-add"}
-                size={30}
+                size={32}
                 color="#FFF"
               />
             </View>
@@ -116,13 +152,12 @@ export default function LoginScreen() {
             </Text>
           </View>
 
-          {/* Formulario */}
           <View style={styles.formCard}>
             {!isLogin && (
               <>
                 <Text style={styles.label}>Nombre completo</Text>
                 <View style={styles.inputContainer}>
-                  <Ionicons name="person-outline" size={20} color="#6B8E9B" style={styles.icon} />
+                  <Ionicons name="person-outline" size={20} color="#6B8E9B" style={styles.iconLeft} />
                   <TextInput
                     style={styles.input}
                     onChangeText={setFullName}
@@ -137,7 +172,7 @@ export default function LoginScreen() {
 
             <Text style={styles.label}>Correo electrónico</Text>
             <View style={styles.inputContainer}>
-              <Ionicons name="mail-outline" size={20} color="#6B8E9B" style={styles.icon} />
+              <Ionicons name="mail-outline" size={20} color="#6B8E9B" style={styles.iconLeft} />
               <TextInput
                 style={styles.input}
                 onChangeText={setEmail}
@@ -151,32 +186,54 @@ export default function LoginScreen() {
 
             <Text style={styles.label}>Contraseña</Text>
             <View style={styles.inputContainer}>
-              <Ionicons name="lock-closed-outline" size={20} color="#6B8E9B" style={styles.icon} />
+              <Ionicons name="lock-closed-outline" size={20} color="#6B8E9B" style={styles.iconLeft} />
               <TextInput
-                style={styles.input}
+                style={styles.inputWithEye}
                 onChangeText={setPassword}
                 value={password}
-                secureTextEntry
+                secureTextEntry={!showPassword}
                 placeholder="Mínimo 6 caracteres"
                 placeholderTextColor="#A0AEC0"
                 autoCapitalize="none"
               />
+              <TouchableOpacity
+                onPress={() => setShowPassword(!showPassword)}
+                style={styles.eyeTouchArea}
+                activeOpacity={0.6}
+              >
+                <Ionicons
+                  name={showPassword ? "eye-off" : "eye"}
+                  size={22}
+                  color="#0284C7"
+                />
+              </TouchableOpacity>
             </View>
 
             {!isLogin && (
               <>
                 <Text style={styles.label}>Confirmar contraseña</Text>
                 <View style={styles.inputContainer}>
-                  <Ionicons name="shield-checkmark-outline" size={20} color="#6B8E9B" style={styles.icon} />
+                  <Ionicons name="shield-checkmark-outline" size={20} color="#6B8E9B" style={styles.iconLeft} />
                   <TextInput
-                    style={styles.input}
+                    style={styles.inputWithEye}
                     onChangeText={setConfirmPassword}
                     value={confirmPassword}
-                    secureTextEntry
+                    secureTextEntry={!showConfirmPassword}
                     placeholder="Repite tu contraseña"
                     placeholderTextColor="#A0AEC0"
                     autoCapitalize="none"
                   />
+                  <TouchableOpacity
+                    onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                    style={styles.eyeTouchArea}
+                    activeOpacity={0.6}
+                  >
+                    <Ionicons
+                      name={showConfirmPassword ? "eye-off" : "eye"}
+                      size={22}
+                      color="#0284C7"
+                    />
+                  </TouchableOpacity>
                 </View>
               </>
             )}
@@ -209,6 +266,22 @@ export default function LoginScreen() {
                 </Text>
               </Text>
             </TouchableOpacity>
+
+            <View style={styles.dividerRow}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>O BIEN</Text>
+              <View style={styles.dividerLine} />
+            </View>
+
+            <TouchableOpacity
+              style={styles.guestButton}
+              onPress={handleGuestMode}
+              disabled={loading}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="phone-portrait-outline" size={20} color="#0369A1" style={{ marginRight: 8 }} />
+              <Text style={styles.guestButtonText}>Continuar sin cuenta (Modo Local)</Text>
+            </TouchableOpacity>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -217,23 +290,15 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F0F4F8'
-  },
-  keyboardView: {
-    flex: 1
-  },
+  container: { flex: 1, backgroundColor: '#F0F4F8' },
+  keyboardView: { flex: 1 },
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
     paddingHorizontal: 24,
     paddingVertical: 32
   },
-  brandWrap: {
-    alignItems: 'center',
-    marginBottom: 28
-  },
+  brandWrap: { alignItems: 'center', marginBottom: 24 },
   brandMark: {
     backgroundColor: '#0EA5E9',
     width: 64,
@@ -247,9 +312,7 @@ const styles = StyleSheet.create({
       android: { elevation: 6 }
     })
   },
-  brandMarkRegister: {
-    backgroundColor: '#0284C7',
-  },
+  brandMarkRegister: { backgroundColor: '#0284C7' },
   badge: {
     backgroundColor: '#E0F2FE',
     paddingHorizontal: 12,
@@ -263,18 +326,8 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.5,
   },
-  title: {
-    fontSize: 26,
-    fontWeight: '800',
-    color: '#0F172A',
-    marginBottom: 4
-  },
-  subtitle: {
-    fontSize: 14,
-    color: '#64748B',
-    textAlign: 'center',
-    paddingHorizontal: 20
-  },
+  title: { fontSize: 26, fontWeight: '800', color: '#0F172A', marginBottom: 4 },
+  subtitle: { fontSize: 14, color: '#64748B', textAlign: 'center', paddingHorizontal: 20 },
   formCard: {
     backgroundColor: '#FFFFFF',
     padding: 24,
@@ -297,20 +350,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#F8FAFC',
     borderRadius: 12,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: '#E2E8F0',
     marginBottom: 16,
-    paddingHorizontal: 14
+    paddingHorizontal: 14,
+    minHeight: 52,
   },
-  icon: {
-    marginRight: 10
-  },
-  input: {
-    flex: 1,
-    paddingVertical: 14,
-    fontSize: 15,
-    color: '#0F172A'
-  },
+  iconLeft: { marginRight: 10 },
+  input: { flex: 1, paddingVertical: 14, fontSize: 15, color: '#0F172A' },
+  inputWithEye: { flex: 1, paddingVertical: 14, fontSize: 15, color: '#0F172A' },
+  eyeTouchArea: { padding: 8, justifyContent: 'center', alignItems: 'center' },
   primaryButton: {
     backgroundColor: '#0EA5E9',
     paddingVertical: 16,
@@ -322,25 +371,32 @@ const styles = StyleSheet.create({
       android: { elevation: 3 }
     })
   },
-  primaryButtonRegister: {
-    backgroundColor: '#0284C7',
-  },
-  primaryButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700'
-  },
-  switchButton: {
-    marginTop: 20,
+  primaryButtonRegister: { backgroundColor: '#0284C7' },
+  primaryButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  switchButton: { marginTop: 16, alignItems: 'center', paddingVertical: 6 },
+  switchTextRegular: { color: '#64748B', fontSize: 14 },
+  switchTextBold: { color: '#0284C7', fontWeight: '700' },
+  dividerRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 6
+    marginVertical: 18,
+    gap: 10
   },
-  switchTextRegular: {
-    color: '#64748B',
-    fontSize: 14
+  dividerLine: { flex: 1, height: 1, backgroundColor: '#E2E8F0' },
+  dividerText: { fontSize: 11, fontWeight: '700', color: '#94A3B8', letterSpacing: 0.5 },
+  guestButton: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F0F9FF',
+    borderWidth: 1.5,
+    borderColor: '#BAE6FD',
+    paddingVertical: 14,
+    borderRadius: 12,
   },
-  switchTextBold: {
-    color: '#0284C7',
-    fontWeight: '700'
+  guestButtonText: {
+    color: '#0369A1',
+    fontSize: 14,
+    fontWeight: '700',
   }
 });
