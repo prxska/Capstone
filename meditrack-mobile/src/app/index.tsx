@@ -7,8 +7,13 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
+import { LocalAuth } from '../lib/storage';
 import { useTheme } from '../context/ThemeContext';
+
+const LOCAL_RECIPES_KEY = '@meditrack_local_recipes';
+const LOCAL_APPTS_KEY = '@meditrack_local_appointments';
 
 const weekDays = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 
@@ -35,6 +40,13 @@ const FREQUENCY_OPTIONS = [
   { id: 8, label: 'Cada 8 hrs', perDay: 3 },
   { id: 12, label: 'Cada 12 hrs', perDay: 2 },
   { id: 24, label: 'Una al día (24 hrs)', perDay: 1 },
+];
+
+const QUICK_HOURS = [
+  { label: '🌅 Mañana (08:00)', time: '08:00' },
+  { label: '☀️ Mediodía (13:00)', time: '13:00' },
+  { label: '🌇 Tarde (17:00)', time: '17:00' },
+  { label: '🌙 Noche (21:00)', time: '21:00' },
 ];
 
 const monthNames = [
@@ -135,6 +147,7 @@ export default function App() {
   const [saving, setSaving] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState(new Date());
   const [currentUserName, setCurrentUserName] = useState('');
+  const [isGuest, setIsGuest] = useState(false);
 
   const [selectedColor, setSelectedColor] = useState(PILL_COLORS[0]);
   const [doseAmount, setDoseAmount] = useState('1');
@@ -154,12 +167,22 @@ export default function App() {
 
   useEffect(() => {
     async function loadUser() {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const name = user.user_metadata?.full_name || user.email?.split('@')[0] || 'Paciente';
+      const guest = await LocalAuth.isGuestMode();
+      setIsGuest(guest);
+
+      if (guest) {
+        const name = 'Usuario Local';
         setCurrentUserName(name);
         setRecipeForm((prev) => ({ ...prev, patient: name }));
         setAppointmentForm((prev) => ({ ...prev, patient: name }));
+      } else {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const name = user.user_metadata?.full_name || user.email?.split('@')[0] || 'Paciente';
+          setCurrentUserName(name);
+          setRecipeForm((prev) => ({ ...prev, patient: name }));
+          setAppointmentForm((prev) => ({ ...prev, patient: name }));
+        }
       }
     }
     loadUser();
@@ -189,58 +212,104 @@ export default function App() {
   async function fetchEvents() {
     setLoading(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      const activeName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || '';
+      const guest = await LocalAuth.isGuestMode();
+      setIsGuest(guest);
 
-      if (!activeName) {
-        setEvents([]);
-        return;
+      if (guest) {
+        // Carga directa y segura desde AsyncStorage
+        const rawRecipes = await AsyncStorage.getItem(LOCAL_RECIPES_KEY);
+        const rawAppts = await AsyncStorage.getItem(LOCAL_APPTS_KEY);
+
+        const localRecipes = rawRecipes ? JSON.parse(rawRecipes) : [];
+        const localAppointments = rawAppts ? JSON.parse(rawAppts) : [];
+
+        const parsedRecipes = localRecipes.map((r: any) => ({
+          id: `rec-${r.id}`,
+          rawId: r.id,
+          medication: r.medication,
+          title: `${r.medication} (${r.dose || ''})`,
+          patient: r.patient || 'Usuario Local',
+          date: r.start_date,
+          endDate: r.end_date || r.start_date,
+          time: r.start_time,
+          color: r.color || '#38BDF8',
+          colorName: r.color_name || 'Azul',
+          dose: r.dose || '',
+          frequency: r.frequency || 'Cada 8 hrs',
+          notes: r.notes || '',
+          type: 'recipe',
+        }));
+
+        const parsedAppointments = localAppointments.map((a: any) => ({
+          id: `app-${a.id}`,
+          rawId: a.id,
+          doctor: a.doctor,
+          specialty: a.specialty,
+          location: a.location,
+          title: `Cita: ${a.specialty ? `${a.specialty} (${a.doctor})` : a.doctor}`,
+          patient: a.patient || 'Usuario Local',
+          date: a.date,
+          time: a.time,
+          color: '#D97706',
+          colorName: 'Ámbar',
+          dose: '',
+          type: 'appointment',
+        }));
+
+        setEvents([...parsedRecipes, ...parsedAppointments]);
+      } else {
+        // Carga desde Supabase
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          setEvents([]);
+          return;
+        }
+
+        const [{ data: recipes, error: rError }, { data: appointments, error: aError }] = await Promise.all([
+          supabase.from('recipes').select('*').eq('user_id', user.id),
+          supabase.from('appointments').select('*').eq('user_id', user.id)
+        ]);
+
+        if (rError) console.error('Error al traer recetas:', rError.message);
+        if (aError) console.error('Error al traer citas:', aError.message);
+
+        const parsedRecipes = (recipes || []).map((r) => ({
+          id: `rec-${r.id}`,
+          rawId: r.id,
+          medication: r.medication,
+          title: `${r.medication} (${r.dose || ''})`,
+          patient: r.patient || currentUserName,
+          date: r.start_date,
+          endDate: r.end_date || r.start_date,
+          time: r.start_time,
+          color: r.color || '#38BDF8',
+          colorName: r.color_name || 'Azul',
+          dose: r.dose || '',
+          frequency: r.frequency || 'Cada 8 hrs',
+          notes: r.notes || '',
+          type: 'recipe',
+        }));
+
+        const parsedAppointments = (appointments || []).map((a) => ({
+          id: `app-${a.id}`,
+          rawId: a.id,
+          doctor: a.doctor,
+          specialty: a.specialty,
+          location: a.location,
+          title: `Cita: ${a.specialty ? `${a.specialty} (${a.doctor})` : a.doctor}`,
+          patient: a.patient || currentUserName,
+          date: a.date,
+          time: a.time,
+          color: '#D97706',
+          colorName: 'Ámbar',
+          dose: '',
+          type: 'appointment',
+        }));
+
+        setEvents([...parsedRecipes, ...parsedAppointments]);
       }
-
-      const [{ data: recipes, error: rError }, { data: appointments, error: aError }] = await Promise.all([
-        supabase.from('recipes').select('*').eq('patient', activeName),
-        supabase.from('appointments').select('*').eq('patient', activeName)
-      ]);
-
-      if (rError) console.error('Error al traer recetas:', rError.message);
-      if (aError) console.error('Error al traer citas:', aError.message);
-
-      const parsedRecipes = (recipes || []).map((r) => ({
-        id: `rec-${r.id}`,
-        rawId: r.id,
-        medication: r.medication,
-        title: `${r.medication} (${r.dose || ''})`,
-        patient: r.patient,
-        date: r.start_date,
-        endDate: r.end_date || r.start_date,
-        time: r.start_time,
-        color: r.color || '#38BDF8',
-        colorName: r.color_name || 'Azul',
-        dose: r.dose || '',
-        frequency: r.frequency || 'Cada 8 hrs',
-        notes: r.notes || '',
-        type: 'recipe',
-      }));
-
-      const parsedAppointments = (appointments || []).map((a) => ({
-        id: `app-${a.id}`,
-        rawId: a.id,
-        doctor: a.doctor,
-        specialty: a.specialty,
-        location: a.location,
-        title: `Cita: ${a.specialty ? `${a.specialty} (${a.doctor})` : a.doctor}`,
-        patient: a.patient,
-        date: a.date,
-        time: a.time,
-        color: '#D97706',
-        colorName: 'Ámbar',
-        dose: '',
-        type: 'appointment',
-      }));
-
-      setEvents([...parsedRecipes, ...parsedAppointments]);
     } catch (err: any) {
-      Alert.alert('Error', 'No se pudieron cargar los datos de Supabase.');
+      Alert.alert('Error', 'No se pudieron cargar los datos.');
     } finally {
       setLoading(false);
     }
@@ -274,6 +343,32 @@ export default function App() {
 
   const handleAppointmentChange = (name: string, value: string) => {
     setAppointmentForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const adjustRecipeTime = (type: 'hour' | 'minute', amount: number) => {
+    const [currentH, currentM] = (recipeForm.startTime || '08:00').split(':').map(Number);
+    if (type === 'hour') {
+      let nextH = (currentH + amount) % 24;
+      if (nextH < 0) nextH = 23;
+      handleRecipeChange('startTime', `${String(nextH).padStart(2, '0')}:${String(currentM).padStart(2, '0')}`);
+    } else {
+      let nextM = (currentM + amount) % 60;
+      if (nextM < 0) nextM = 45;
+      handleRecipeChange('startTime', `${String(currentH).padStart(2, '0')}:${String(nextM).padStart(2, '0')}`);
+    }
+  };
+
+  const adjustAppointmentTime = (type: 'hour' | 'minute', amount: number) => {
+    const [currentH, currentM] = (appointmentForm.time || '10:00').split(':').map(Number);
+    if (type === 'hour') {
+      let nextH = (currentH + amount) % 24;
+      if (nextH < 0) nextH = 23;
+      handleAppointmentChange('time', `${String(nextH).padStart(2, '0')}:${String(currentM).padStart(2, '0')}`);
+    } else {
+      let nextM = (currentM + amount) % 60;
+      if (nextM < 0) nextM = 45;
+      handleAppointmentChange('time', `${String(currentH).padStart(2, '0')}:${String(nextM).padStart(2, '0')}`);
+    }
   };
 
   const handleSelectPickerDate = (dateStr: string) => {
@@ -359,9 +454,23 @@ export default function App() {
           onPress: async () => {
             setSaving(true);
             try {
-              const table = formType === 'recipe' ? 'recipes' : 'appointments';
-              const { error } = await supabase.from(table).delete().eq('id', editingId);
-              if (error) throw error;
+              if (isGuest) {
+                if (formType === 'recipe') {
+                  const raw = await AsyncStorage.getItem(LOCAL_RECIPES_KEY);
+                  const list = raw ? JSON.parse(raw) : [];
+                  const updated = list.filter((r: any) => r.id !== editingId);
+                  await AsyncStorage.setItem(LOCAL_RECIPES_KEY, JSON.stringify(updated));
+                } else {
+                  const raw = await AsyncStorage.getItem(LOCAL_APPTS_KEY);
+                  const list = raw ? JSON.parse(raw) : [];
+                  const updated = list.filter((a: any) => a.id !== editingId);
+                  await AsyncStorage.setItem(LOCAL_APPTS_KEY, JSON.stringify(updated));
+                }
+              } else {
+                const table = formType === 'recipe' ? 'recipes' : 'appointments';
+                const { error } = await supabase.from(table).delete().eq('id', editingId);
+                if (error) throw error;
+              }
 
               setIsFormOpen(false);
               setEditingId(null);
@@ -380,33 +489,77 @@ export default function App() {
   const handleSubmit = async () => {
     setSaving(true);
     try {
+      const guest = await LocalAuth.isGuestMode();
+      let activeUserId: string | null = null;
+
+      if (!guest) {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          Alert.alert('Sesión expirada', 'Inicia sesión nuevamente o ingresa en modo local.');
+          setSaving(false);
+          return;
+        }
+        activeUserId = user.id;
+      }
+
       if (formType === 'recipe') {
-        if (!recipeForm.medication || !currentUserName) {
-          Alert.alert('Incompleto', 'Indica paciente y medicamento.');
+        if (!recipeForm.medication) {
+          Alert.alert('Incompleto', 'Indica el nombre del medicamento.');
           setSaving(false);
           return;
         }
 
         const fullDose = `${doseAmount.trim()} ${doseUnit}`;
-        const payload = {
-          patient: currentUserName,
-          medication: recipeForm.medication,
-          dose: fullDose,
-          color: selectedColor.id,
-          color_name: selectedColor.name,
-          frequency: recipeForm.frequency,
-          start_date: recipeForm.startDate,
-          end_date: recipeForm.endDate,
-          start_time: recipeForm.startTime,
-          notes: recipeForm.notes,
-        };
 
-        if (editingId) {
-          const { error } = await supabase.from('recipes').update(payload).eq('id', editingId);
-          if (error) throw error;
+        if (guest) {
+          // Guardar directamente en AsyncStorage
+          const raw = await AsyncStorage.getItem(LOCAL_RECIPES_KEY);
+          let list = raw ? JSON.parse(raw) : [];
+
+          const newRecipe = {
+            id: editingId || `rec_${Date.now()}`,
+            patient: 'Usuario Local',
+            medication: recipeForm.medication,
+            dose: fullDose,
+            color: selectedColor.id,
+            color_name: selectedColor.name,
+            frequency: recipeForm.frequency,
+            start_date: recipeForm.startDate,
+            end_date: recipeForm.endDate,
+            start_time: recipeForm.startTime,
+            notes: recipeForm.notes,
+          };
+
+          if (editingId) {
+            list = list.map((item: any) => (item.id === editingId ? newRecipe : item));
+          } else {
+            list.unshift(newRecipe);
+          }
+
+          await AsyncStorage.setItem(LOCAL_RECIPES_KEY, JSON.stringify(list));
         } else {
-          const { error } = await supabase.from('recipes').insert([payload]);
-          if (error) throw error;
+          // Guardar en Supabase
+          const payload = {
+            user_id: activeUserId,
+            patient: currentUserName,
+            medication: recipeForm.medication,
+            dose: fullDose,
+            color: selectedColor.id,
+            color_name: selectedColor.name,
+            frequency: recipeForm.frequency,
+            start_date: recipeForm.startDate,
+            end_date: recipeForm.endDate,
+            start_time: recipeForm.startTime,
+            notes: recipeForm.notes,
+          };
+
+          if (editingId) {
+            const { error } = await supabase.from('recipes').update(payload).eq('id', editingId);
+            if (error) throw error;
+          } else {
+            const { error } = await supabase.from('recipes').insert([payload]);
+            if (error) throw error;
+          }
         }
 
         setRecipeForm({
@@ -418,27 +571,53 @@ export default function App() {
         setSelectedColor(PILL_COLORS[0]);
         setSelectedInterval(8);
       } else {
-        if (!appointmentForm.doctor || !currentUserName) {
-          Alert.alert('Incompleto', 'Indica paciente y médico.');
+        if (!appointmentForm.doctor) {
+          Alert.alert('Incompleto', 'Indica el nombre del médico.');
           setSaving(false);
           return;
         }
 
-        const payload = {
-          patient: currentUserName,
-          doctor: appointmentForm.doctor,
-          specialty: appointmentForm.specialty,
-          date: appointmentForm.date,
-          time: appointmentForm.time,
-          location: appointmentForm.location,
-        };
+        if (guest) {
+          // Guardar cita directamente en AsyncStorage
+          const raw = await AsyncStorage.getItem(LOCAL_APPTS_KEY);
+          let list = raw ? JSON.parse(raw) : [];
 
-        if (editingId) {
-          const { error } = await supabase.from('appointments').update(payload).eq('id', editingId);
-          if (error) throw error;
+          const newAppt = {
+            id: editingId || `app_${Date.now()}`,
+            patient: 'Usuario Local',
+            doctor: appointmentForm.doctor,
+            specialty: appointmentForm.specialty,
+            date: appointmentForm.date,
+            time: appointmentForm.time,
+            location: appointmentForm.location,
+          };
+
+          if (editingId) {
+            list = list.map((item: any) => (item.id === editingId ? newAppt : item));
+          } else {
+            list.unshift(newAppt);
+          }
+
+          await AsyncStorage.setItem(LOCAL_APPTS_KEY, JSON.stringify(list));
         } else {
-          const { error } = await supabase.from('appointments').insert([payload]);
-          if (error) throw error;
+          // Guardar cita en Supabase
+          const payload = {
+            user_id: activeUserId,
+            patient: currentUserName,
+            doctor: appointmentForm.doctor,
+            specialty: appointmentForm.specialty,
+            date: appointmentForm.date,
+            time: appointmentForm.time,
+            location: appointmentForm.location,
+          };
+
+          if (editingId) {
+            const { error } = await supabase.from('appointments').update(payload).eq('id', editingId);
+            if (error) throw error;
+          } else {
+            const { error } = await supabase.from('appointments').insert([payload]);
+            if (error) throw error;
+          }
         }
 
         setAppointmentForm(initialAppointmentForm);
@@ -635,7 +814,7 @@ export default function App() {
             </View>
             {upcomingEvents.length === 0 && !loading && (
               <Text style={[{ color: '#6B8E9B', fontStyle: 'italic' }, isDarkMode && { color: '#94A3B8' }]}>
-                No hay registros próximos en la base de datos.
+                No hay registros próximos.
               </Text>
             )}
             {upcomingEvents.slice(0, 8).map((event) => {
@@ -700,7 +879,7 @@ export default function App() {
           </View>
         </ScrollView>
 
-        {/* Indicador inferior accesible para avisar que queda contenido */}
+        {/* Indicador inferior accesible */}
         {showScrollPrompt && (
           <View pointerEvents="none" style={styles.floatingPromptContainer}>
             <View style={[styles.floatingPromptPill, isDarkMode && styles.floatingPromptDark]}>
@@ -749,9 +928,14 @@ export default function App() {
                     <>
                       <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Paciente</Text>
                       <View style={[styles.readOnlyUserBox, isDarkMode && styles.darkReadOnlyBox]}>
-                        <Ionicons name="person-circle" size={24} color="#36B9CC" style={{ marginRight: 8 }} />
+                        <Ionicons
+                          name={isGuest ? "phone-portrait" : "person-circle"}
+                          size={24}
+                          color="#36B9CC"
+                          style={{ marginRight: 8 }}
+                        />
                         <Text style={[styles.readOnlyUserText, isDarkMode && styles.darkText]}>
-                          {currentUserName || 'Cargando...'}
+                          {isGuest ? 'Modo Local (Sin cuenta)' : (currentUserName || 'Cargando...')}
                         </Text>
                       </View>
 
@@ -811,33 +995,105 @@ export default function App() {
                         })}
                       </View>
 
-                      <View style={styles.row}>
-                        <View style={styles.halfWidth}>
-                          <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>
-                            Cantidad ({doseUnit})
-                          </Text>
-                          <TextInput
-                            style={[styles.input, isDarkMode && styles.darkInput]}
-                            placeholder="Ej. 1"
-                            placeholderTextColor="#94A3B8"
-                            keyboardType="numeric"
-                            value={doseAmount}
-                            onChangeText={setDoseAmount}
-                          />
+                      <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>
+                        Cantidad ({doseUnit})
+                      </Text>
+                      <TextInput
+                        style={[styles.input, isDarkMode && styles.darkInput]}
+                        placeholder="Ej. 1"
+                        placeholderTextColor="#94A3B8"
+                        keyboardType="numeric"
+                        value={doseAmount}
+                        onChangeText={setDoseAmount}
+                      />
+
+                      {/* Selector táctil accesible para la primera toma */}
+                      <Text style={[styles.label, isDarkMode && styles.darkSubtext, { marginTop: 4 }]}>
+                        Hora de la primera toma
+                      </Text>
+                      <View style={[styles.timePickerContainer, isDarkMode && styles.darkTimePickerContainer]}>
+                        <View style={styles.timeStepperGroup}>
+                          <Text style={[styles.stepperSubtext, isDarkMode && { color: '#94A3B8' }]}>HORA</Text>
+                          <View style={styles.stepperRow}>
+                            <TouchableOpacity
+                              style={[styles.stepperBtn, isDarkMode && styles.darkStepperBtn]}
+                              onPress={() => adjustRecipeTime('hour', -1)}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            >
+                              <Ionicons name="remove" size={24} color={isDarkMode ? '#38BDF8' : '#0284C7'} />
+                            </TouchableOpacity>
+
+                            <Text style={[styles.stepperNumber, isDarkMode && { color: '#F1F5F9' }]}>
+                              {(recipeForm.startTime || '08:00').split(':')[0]}
+                            </Text>
+
+                            <TouchableOpacity
+                              style={[styles.stepperBtn, isDarkMode && styles.darkStepperBtn]}
+                              onPress={() => adjustRecipeTime('hour', 1)}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            >
+                              <Ionicons name="add" size={24} color={isDarkMode ? '#38BDF8' : '#0284C7'} />
+                            </TouchableOpacity>
+                          </View>
                         </View>
-                        <View style={styles.halfWidth}>
-                          <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Primera toma (HH:MM)</Text>
-                          <TextInput
-                            style={[styles.input, isDarkMode && styles.darkInput]}
-                            placeholder="08:00"
-                            placeholderTextColor="#94A3B8"
-                            value={recipeForm.startTime}
-                            onChangeText={(t) => handleRecipeChange('startTime', t)}
-                          />
+
+                        <Text style={[styles.timeSeparator, isDarkMode && { color: '#64748B' }]}>:</Text>
+
+                        <View style={styles.timeStepperGroup}>
+                          <Text style={[styles.stepperSubtext, isDarkMode && { color: '#94A3B8' }]}>MINUTOS</Text>
+                          <View style={styles.stepperRow}>
+                            <TouchableOpacity
+                              style={[styles.stepperBtn, isDarkMode && styles.darkStepperBtn]}
+                              onPress={() => adjustRecipeTime('minute', -15)}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            >
+                              <Ionicons name="remove" size={24} color={isDarkMode ? '#38BDF8' : '#0284C7'} />
+                            </TouchableOpacity>
+
+                            <Text style={[styles.stepperNumber, isDarkMode && { color: '#F1F5F9' }]}>
+                              {(recipeForm.startTime || '08:00').split(':')[1]}
+                            </Text>
+
+                            <TouchableOpacity
+                              style={[styles.stepperBtn, isDarkMode && styles.darkStepperBtn]}
+                              onPress={() => adjustRecipeTime('minute', 15)}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            >
+                              <Ionicons name="add" size={24} color={isDarkMode ? '#38BDF8' : '#0284C7'} />
+                            </TouchableOpacity>
+                          </View>
                         </View>
                       </View>
 
-                      <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>
+                      <Text style={[styles.miniSubLabel, isDarkMode && styles.darkSubtext, { marginTop: 10 }]}>
+                        O elige un horario habitual:
+                      </Text>
+                      <View style={styles.quickDurationRow}>
+                        {QUICK_HOURS.map((q) => {
+                          const isChosen = recipeForm.startTime === q.time;
+                          return (
+                            <TouchableOpacity
+                              key={q.time}
+                              style={[
+                                styles.quickHourChip,
+                                isDarkMode && styles.darkQuickHourChip,
+                                isChosen && styles.quickHourChipActive
+                              ]}
+                              onPress={() => handleRecipeChange('startTime', q.time)}
+                            >
+                              <Text style={[
+                                styles.quickHourChipText,
+                                isDarkMode && { color: '#38BDF8' },
+                                isChosen && { color: '#FFFFFF', fontWeight: 'bold' }
+                              ]}>
+                                {q.label}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+
+                      <Text style={[styles.label, isDarkMode && styles.darkSubtext, { marginTop: 8 }]}>
                         Frecuencia de toma
                       </Text>
                       <View style={styles.frequencyRow}>
@@ -926,9 +1182,14 @@ export default function App() {
                     <>
                       <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Paciente</Text>
                       <View style={[styles.readOnlyUserBox, isDarkMode && styles.darkReadOnlyBox]}>
-                        <Ionicons name="person-circle" size={24} color="#D97706" style={{ marginRight: 8 }} />
+                        <Ionicons
+                          name={isGuest ? "phone-portrait" : "person-circle"}
+                          size={24}
+                          color="#D97706"
+                          style={{ marginRight: 8 }}
+                        />
                         <Text style={[styles.readOnlyUserText, isDarkMode && styles.darkText]}>
-                          {currentUserName || 'Cargando...'}
+                          {isGuest ? 'Modo Local (Sin cuenta)' : (currentUserName || 'Cargando...')}
                         </Text>
                       </View>
 
@@ -959,28 +1220,72 @@ export default function App() {
                         onChangeText={(t) => handleAppointmentChange('location', t)}
                       />
 
-                      <View style={styles.row}>
-                        <View style={styles.halfWidth}>
-                          <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Fecha Cita</Text>
-                          <TouchableOpacity
-                            style={[styles.dateTriggerButton, isDarkMode && styles.darkDateTrigger]}
-                            onPress={() => openPickerModal('appDate')}
-                          >
-                            <Ionicons name="calendar-outline" size={18} color="#D97706" />
-                            <Text style={[styles.dateTriggerText, isDarkMode && { color: '#F1F5F9' }]}>
-                              {appointmentForm.date}
+                      <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Fecha Cita</Text>
+                      <TouchableOpacity
+                        style={[styles.dateTriggerButton, isDarkMode && styles.darkDateTrigger]}
+                        onPress={() => openPickerModal('appDate')}
+                      >
+                        <Ionicons name="calendar-outline" size={18} color="#D97706" />
+                        <Text style={[styles.dateTriggerText, isDarkMode && { color: '#F1F5F9' }]}>
+                          {appointmentForm.date}
+                        </Text>
+                      </TouchableOpacity>
+
+                      {/* Selector táctil accesible para la hora de la cita */}
+                      <Text style={[styles.label, isDarkMode && styles.darkSubtext, { marginTop: 4 }]}>
+                        Hora de la Cita
+                      </Text>
+                      <View style={[styles.timePickerContainer, isDarkMode && styles.darkTimePickerContainer]}>
+                        <View style={styles.timeStepperGroup}>
+                          <Text style={[styles.stepperSubtext, isDarkMode && { color: '#94A3B8' }]}>HORA</Text>
+                          <View style={styles.stepperRow}>
+                            <TouchableOpacity
+                              style={[styles.stepperBtn, isDarkMode && styles.darkStepperBtn]}
+                              onPress={() => adjustAppointmentTime('hour', -1)}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            >
+                              <Ionicons name="remove" size={24} color="#D97706" />
+                            </TouchableOpacity>
+
+                            <Text style={[styles.stepperNumber, isDarkMode && { color: '#F1F5F9' }]}>
+                              {(appointmentForm.time || '10:00').split(':')[0]}
                             </Text>
-                          </TouchableOpacity>
+
+                            <TouchableOpacity
+                              style={[styles.stepperBtn, isDarkMode && styles.darkStepperBtn]}
+                              onPress={() => adjustAppointmentTime('hour', 1)}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            >
+                              <Ionicons name="add" size={24} color="#D97706" />
+                            </TouchableOpacity>
+                          </View>
                         </View>
-                        <View style={styles.halfWidth}>
-                          <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Hora (HH:MM)</Text>
-                          <TextInput
-                            style={[styles.input, isDarkMode && styles.darkInput]}
-                            placeholder="10:00"
-                            placeholderTextColor="#94A3B8"
-                            value={appointmentForm.time}
-                            onChangeText={(t) => handleAppointmentChange('time', t)}
-                          />
+
+                        <Text style={[styles.timeSeparator, isDarkMode && { color: '#64748B' }]}>:</Text>
+
+                        <View style={styles.timeStepperGroup}>
+                          <Text style={[styles.stepperSubtext, isDarkMode && { color: '#94A3B8' }]}>MINUTOS</Text>
+                          <View style={styles.stepperRow}>
+                            <TouchableOpacity
+                              style={[styles.stepperBtn, isDarkMode && styles.darkStepperBtn]}
+                              onPress={() => adjustAppointmentTime('minute', -15)}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            >
+                              <Ionicons name="remove" size={24} color="#D97706" />
+                            </TouchableOpacity>
+
+                            <Text style={[styles.stepperNumber, isDarkMode && { color: '#F1F5F9' }]}>
+                              {(appointmentForm.time || '10:00').split(':')[1]}
+                            </Text>
+
+                            <TouchableOpacity
+                              style={[styles.stepperBtn, isDarkMode && styles.darkStepperBtn]}
+                              onPress={() => adjustAppointmentTime('minute', 15)}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            >
+                              <Ionicons name="add" size={24} color="#D97706" />
+                            </TouchableOpacity>
+                          </View>
                         </View>
                       </View>
                     </>
@@ -998,7 +1303,9 @@ export default function App() {
                       <ActivityIndicator color="#FFF" />
                     ) : (
                       <Text style={styles.submitButtonText}>
-                        {editingId ? 'Actualizar en Supabase' : 'Guardar en Supabase'}
+                        {editingId
+                          ? (isGuest ? 'Actualizar en Teléfono' : 'Actualizar en Supabase')
+                          : (isGuest ? 'Guardar en Teléfono' : 'Guardar en Supabase')}
                       </Text>
                     )}
                   </TouchableOpacity>
@@ -1476,6 +1783,88 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#0369A1',
     flex: 1,
+  },
+  timePickerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F0F4F8',
+    borderRadius: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    marginBottom: 8,
+  },
+  darkTimePickerContainer: {
+    backgroundColor: '#1E293B',
+    borderColor: '#334155',
+  },
+  timeStepperGroup: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  stepperSubtext: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#64748B',
+    marginBottom: 6,
+    letterSpacing: 0.5,
+  },
+  stepperRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  stepperBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 3 },
+      android: { elevation: 2 },
+    }),
+  },
+  darkStepperBtn: {
+    backgroundColor: '#334155',
+  },
+  stepperNumber: {
+    fontSize: 26,
+    fontWeight: '900',
+    color: '#0F172A',
+    minWidth: 40,
+    textAlign: 'center',
+  },
+  timeSeparator: {
+    fontSize: 28,
+    fontWeight: '900',
+    color: '#94A3B8',
+    marginHorizontal: 8,
+    marginTop: 18,
+  },
+  quickHourChip: {
+    backgroundColor: '#E0F2FE',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#BAE6FD',
+  },
+  darkQuickHourChip: {
+    backgroundColor: '#1E293B',
+    borderColor: '#334155',
+  },
+  quickHourChipActive: {
+    backgroundColor: '#0284C7',
+    borderColor: '#0284C7',
+  },
+  quickHourChipText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0369A1',
   },
   dateTriggerButton: {
     flexDirection: 'row',
