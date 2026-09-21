@@ -7,6 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { supabase } from '../lib/supabase';
 import { LocalAuth } from '../lib/storage';
+import { signInWithOAuth } from '../lib/oauth';
 import { Ionicons } from '@expo/vector-icons';
 
 export default function LoginScreen() {
@@ -18,6 +19,7 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [isLogin, setIsLogin] = useState(true);
 
   function resetForm() {
@@ -58,6 +60,18 @@ export default function LoginScreen() {
       ]
     );
   };
+
+  async function handleGoogleSignIn() {
+    setGoogleLoading(true);
+    try {
+      const signedIn = await signInWithOAuth('google');
+      if (signedIn) router.replace('/');
+    } catch (err: any) {
+      Alert.alert('Error con Google', err?.message || 'No se pudo iniciar sesión con Google.');
+    } finally {
+      setGoogleLoading(false);
+    }
+  }
 
   async function handleAuth() {
     if (!email.trim() || !password.trim()) {
@@ -241,7 +255,7 @@ export default function LoginScreen() {
             <TouchableOpacity
               style={[styles.primaryButton, !isLogin && styles.primaryButtonRegister]}
               onPress={handleAuth}
-              disabled={loading}
+              disabled={loading || googleLoading}
               activeOpacity={0.8}
             >
               {loading ? (
@@ -256,7 +270,7 @@ export default function LoginScreen() {
             <TouchableOpacity
               style={styles.switchButton}
               onPress={handleSwitchMode}
-              disabled={loading}
+              disabled={loading || googleLoading}
               activeOpacity={0.7}
             >
               <Text style={styles.switchTextRegular}>
@@ -274,9 +288,27 @@ export default function LoginScreen() {
             </View>
 
             <TouchableOpacity
+              style={styles.googleButton}
+              onPress={handleGoogleSignIn}
+              disabled={loading || googleLoading}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Continuar con Google"
+            >
+              {googleLoading ? (
+                <ActivityIndicator color="#1F2937" />
+              ) : (
+                <>
+                  <Ionicons name="logo-google" size={20} color="#DB4437" style={{ marginRight: 10 }} />
+                  <Text style={styles.googleButtonText}>Continuar con Google</Text>
+                </>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
               style={styles.guestButton}
               onPress={handleGuestMode}
-              disabled={loading}
+              disabled={loading || googleLoading}
               activeOpacity={0.8}
             >
               <Ionicons name="phone-portrait-outline" size={20} color="#0369A1" style={{ marginRight: 8 }} />
@@ -384,6 +416,23 @@ const styles = StyleSheet.create({
   },
   dividerLine: { flex: 1, height: 1, backgroundColor: '#E2E8F0' },
   dividerText: { fontSize: 11, fontWeight: '700', color: '#94A3B8', letterSpacing: 0.5 },
+  googleButton: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: '#94A3B8',
+    paddingVertical: 14,
+    borderRadius: 12,
+    marginBottom: 12,
+    minHeight: 52,
+  },
+  googleButtonText: {
+    color: '#1F2937',
+    fontSize: 15,
+    fontWeight: '700',
+  },
   guestButton: {
     flexDirection: 'row',
     justifyContent: 'center',
