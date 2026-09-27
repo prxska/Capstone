@@ -674,18 +674,16 @@ export default function App() {
 
         <View style={styles.topbarActions}>
           <TouchableOpacity style={styles.primaryButton} onPress={() => openModal('recipe')}>
-            <Ionicons name="medical" size={16} color="#FFF" style={{ marginRight: 6 }} />
+            <Ionicons name="medical" size={18} color="#FFF" style={{ marginRight: 6 }} />
             <Text style={styles.primaryButtonText}>+ Receta</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.appointmentButton, isDarkMode && styles.darkAppointmentButton]}
+            style={styles.appointmentButton}
             onPress={() => openModal('appointment')}
           >
-            <Ionicons name="calendar" size={16} color={isDarkMode ? '#FDE68A' : '#B45309'} style={{ marginRight: 6 }} />
-            <Text style={[styles.appointmentButtonText, isDarkMode && { color: '#FDE68A' }]}>
-              + Cita Médica
-            </Text>
+            <Ionicons name="calendar" size={18} color="#FFF" style={{ marginRight: 6 }} />
+            <Text style={styles.appointmentButtonText}>+ Cita Médica</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -702,10 +700,11 @@ export default function App() {
           <View style={[styles.calendarPanel, isDarkMode && { backgroundColor: '#1E293B' }]}>
             <View style={styles.calendarActions}>
               <TouchableOpacity
-                style={[styles.navButton, isDarkMode && { backgroundColor: '#334155' }]}
+                style={[styles.navButton, isDarkMode && styles.darkNavButton]}
                 onPress={() => changeMonth(-1)}
+                accessibilityLabel="Mes anterior"
               >
-                <Text style={[styles.navButtonText, isDarkMode && { color: '#38BDF8' }]}>‹</Text>
+                <Ionicons name="chevron-back" size={26} color={isDarkMode ? '#7DD3FC' : '#FFF'} />
               </TouchableOpacity>
 
               <Text style={[styles.monthLabel, isDarkMode && { color: '#F1F5F9' }, largeFont && { fontSize: 22 }]}>
@@ -713,10 +712,11 @@ export default function App() {
               </Text>
 
               <TouchableOpacity
-                style={[styles.navButton, isDarkMode && { backgroundColor: '#334155' }]}
+                style={[styles.navButton, isDarkMode && styles.darkNavButton]}
                 onPress={() => changeMonth(1)}
+                accessibilityLabel="Mes siguiente"
               >
-                <Text style={[styles.navButtonText, isDarkMode && { color: '#38BDF8' }]}>›</Text>
+                <Ionicons name="chevron-forward" size={26} color={isDarkMode ? '#7DD3FC' : '#FFF'} />
               </TouchableOpacity>
             </View>
 
@@ -726,7 +726,7 @@ export default function App() {
               <View style={styles.calendarGrid}>
                 {weekDays.map((day) => (
                   <View key={day} style={styles.weekdayCell}>
-                    <Text style={[styles.weekdayText, isDarkMode && { color: '#94A3B8' }]}>
+                    <Text style={[styles.weekdayText, isDarkMode && { color: '#CBD5E1' }]}>
                       {day}
                     </Text>
                   </View>
@@ -752,7 +752,7 @@ export default function App() {
                       style={[
                         styles.dayCell,
                         isDarkMode && { borderColor: '#334155' },
-                        !isCurrentMonth && (isDarkMode ? { opacity: 0.25 } : styles.mutedDay),
+                        !isCurrentMonth && (isDarkMode ? { opacity: 0.5 } : styles.mutedDay),
                       ]}
                     >
                       <View style={[styles.dayNumberContainer, isToday && styles.todayBadge]}>
@@ -813,7 +813,7 @@ export default function App() {
               </Text>
             </View>
             {upcomingEvents.length === 0 && !loading && (
-              <Text style={[{ color: '#6B8E9B', fontStyle: 'italic' }, isDarkMode && { color: '#94A3B8' }]}>
+              <Text style={[{ color: '#475569', fontSize: 15, fontWeight: '500' }, isDarkMode && { color: '#CBD5E1' }]}>
                 No hay registros próximos.
               </Text>
             )}
@@ -883,8 +883,8 @@ export default function App() {
         {showScrollPrompt && (
           <View pointerEvents="none" style={styles.floatingPromptContainer}>
             <View style={[styles.floatingPromptPill, isDarkMode && styles.floatingPromptDark]}>
-              <Ionicons name="chevron-down" size={16} color={isDarkMode ? '#94A3B8' : '#475569'} />
-              <Text style={[styles.floatingPromptText, isDarkMode && { color: '#94A3B8' }]}>
+              <Ionicons name="arrow-down-circle" size={22} color="#FFF" />
+              <Text style={styles.floatingPromptText}>
                 Baja para ver más atenciones
               </Text>
             </View>
@@ -1327,8 +1327,8 @@ export default function App() {
               {showModalScrollPrompt && (
                 <View pointerEvents="none" style={styles.floatingPromptContainer}>
                   <View style={[styles.floatingPromptPill, isDarkMode && styles.floatingPromptDark]}>
-                    <Ionicons name="chevron-down" size={16} color={isDarkMode ? '#94A3B8' : '#475569'} />
-                    <Text style={[styles.floatingPromptText, isDarkMode && { color: '#94A3B8' }]}>
+                    <Ionicons name="arrow-down-circle" size={22} color="#FFF" />
+                    <Text style={styles.floatingPromptText}>
                       Baja para ver más datos y guardar
                     </Text>
                   </View>
@@ -1466,7 +1466,7 @@ const styles = StyleSheet.create({
   iconButton: { justifyContent: 'center', alignItems: 'center' },
   topbarActions: { flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
   primaryButton: {
-    backgroundColor: '#36B9CC',
+    backgroundColor: '#007791',
     flexDirection: 'row',
     paddingVertical: 12,
     borderRadius: 10,
@@ -1474,35 +1474,33 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  primaryButtonText: { color: '#FFF', fontWeight: 'bold', fontSize: 14 },
+  primaryButtonText: { color: '#FFF', fontWeight: '800', fontSize: 15 },
   appointmentButton: {
-    backgroundColor: '#FEF3C7',
+    backgroundColor: '#C85A17',
     flexDirection: 'row',
     paddingVertical: 12,
     borderRadius: 10,
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1.5,
-    borderColor: '#D97706',
   },
-  darkAppointmentButton: {
-    backgroundColor: '#78350F',
-    borderColor: '#F59E0B',
-  },
-  appointmentButtonText: { color: '#B45309', fontWeight: 'bold', fontSize: 14 },
+  appointmentButtonText: { color: '#FFF', fontWeight: '800', fontSize: 15 },
   mainLayout: { flex: 1, paddingHorizontal: 15 },
   calendarPanel: { backgroundColor: '#FFF', borderRadius: 20, padding: 15, marginBottom: 15 },
   calendarActions: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
   navButton: {
-    backgroundColor: '#EAF6F6',
-    width: 35,
-    height: 35,
-    borderRadius: 17.5,
+    backgroundColor: '#007791',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  navButtonText: { fontSize: 20, color: '#36B9CC' },
+  darkNavButton: {
+    backgroundColor: '#334155',
+    borderWidth: 2,
+    borderColor: '#7DD3FC',
+  },
   monthLabel: { fontSize: 18, fontWeight: 'bold', color: '#102A43' },
   calendarGrid: { flexDirection: 'row', flexWrap: 'wrap' },
   dayNumberContainer: {
@@ -1517,7 +1515,7 @@ const styles = StyleSheet.create({
   todayBadge: { backgroundColor: '#0EA5E9' },
   todayNumberText: { color: '#FFFFFF', fontWeight: 'bold' },
   weekdayCell: { width: '14.28%', alignItems: 'center', marginBottom: 10 },
-  weekdayText: { color: '#6B8E9B', fontSize: 12, fontWeight: 'bold' },
+  weekdayText: { color: '#334155', fontSize: 13, fontWeight: '700' },
   dayCell: {
     width: '14.28%',
     minHeight: 65,
@@ -1527,7 +1525,7 @@ const styles = StyleSheet.create({
     borderColor: '#F0F4F8',
     justifyContent: 'flex-start',
   },
-  mutedDay: { opacity: 0.3 },
+  mutedDay: { opacity: 0.55 },
   dayNumber: { fontSize: 14, color: '#102A43', marginBottom: 2 },
   eventPill: {
     borderRadius: 4,
@@ -1969,23 +1967,22 @@ const styles = StyleSheet.create({
   floatingPromptPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#E2E8F0',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 20,
-    opacity: 0.92,
+    gap: 8,
+    backgroundColor: '#007791',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 24,
     ...Platform.select({
-      ios: { shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 4 },
-      android: { elevation: 3 },
+      ios: { shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 5 },
+      android: { elevation: 5 },
     }),
   },
   floatingPromptDark: {
-    backgroundColor: '#1E293B',
+    backgroundColor: '#0369A1',
   },
   floatingPromptText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#475569',
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#FFF',
   },
 });
