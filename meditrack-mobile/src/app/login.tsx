@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   Alert, StyleSheet, View, TextInput, TouchableOpacity,
-  Text, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView
+  Text, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Image
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -142,13 +142,11 @@ export default function LoginScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <View style={styles.brandWrap}>
-            <View style={[styles.brandMark, !isLogin && styles.brandMarkRegister]}>
-              <Ionicons
-                name={isLogin ? "medical" : "person-add"}
-                size={32}
-                color="#FFF"
-              />
-            </View>
+            <Image
+              source={require('../images/Logo para App Meditrack.png')}
+              style={styles.brandMarkImage}
+              resizeMode="contain"
+            />
 
             {!isLogin && (
               <View style={styles.badge}>
@@ -331,20 +329,11 @@ const styles = StyleSheet.create({
     paddingVertical: 32
   },
   brandWrap: { alignItems: 'center', marginBottom: 24 },
-  brandMark: {
-    backgroundColor: '#0EA5E9',
-    width: 64,
-    height: 64,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
+  brandMarkImage: {
+    width: 88,
+    height: 88,
     marginBottom: 12,
-    ...Platform.select({
-      ios: { shadowColor: '#0EA5E9', shadowOpacity: 0.35, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
-      android: { elevation: 6 }
-    })
   },
-  brandMarkRegister: { backgroundColor: '#0284C7' },
   badge: {
     backgroundColor: '#E0F2FE',
     paddingHorizontal: 12,
