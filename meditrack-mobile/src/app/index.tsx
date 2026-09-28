@@ -20,8 +20,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../context/ThemeContext';
+import { getMedicationPhoto, uploadMedicationPhoto } from '../lib/medicationPhotos';
 import { LocalAuth } from '../lib/storage';
 import { supabase } from '../lib/supabase';
+import { syncUpcomingAttentionsWidget } from '../widgets/syncUpcomingAttentions';
 
 const LOCAL_RECIPES_KEY = '@meditrack_local_recipes';
 const LOCAL_APPTS_KEY = '@meditrack_local_appointments';
@@ -100,6 +102,7 @@ const initialRecipeForm = {
   startTime: '08:00',
   notes: '',
   photoUri: '',
+  photoStoragePath: '',
   isChronic: false,
 };
 
@@ -255,7 +258,8 @@ export default function App() {
           frequency: r.frequency || 'Cada 8 hrs',
           notes: r.notes || '',
           photoUri: r.photoUri || r.photo_url || '',
-          type: 'recipe',
+          photoStoragePath: r.photoStoragePath || '',
+          type: 'recipe' as const,
         }));
 
         const parsedAppointments = localAppointments.map((a: any) => ({
@@ -268,20 +272,24 @@ export default function App() {
           patient: a.patient || 'Usuario Local',
           date: a.date,
           time: a.time,
-          color: '#D97706',
+          color: '#D97706' as const,
           colorName: 'Ámbar',
           dose: '',
-          type: 'appointment',
+          type: 'appointment' as const,
         }));
 
-        setEvents([...parsedRecipes, ...parsedAppointments]);
+        const nextEvents = [...parsedRecipes, ...parsedAppointments];
+        setEvents(nextEvents);
+        await syncUpcomingAttentionsWidget(nextEvents);
       } else {
         // Carga desde Supabase
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError || !session) {
           setEvents([]);
+          await syncUpcomingAttentionsWidget([]);
           return;
         }
+        const user = session.user;
 
         const [{ data: recipes, error: rError }, { data: appointments, error: aError }] = await Promise.all([
           supabase.from('recipes').select('*').eq('user_id', user.id),
@@ -291,23 +299,31 @@ export default function App() {
         if (rError) console.error('Error al traer recetas:', rError.message);
         if (aError) console.error('Error al traer citas:', aError.message);
 
-        const parsedRecipes = (recipes || []).map((r: any) => ({
-          id: `rec-${r.id}`,
-          rawId: r.id,
-          medication: r.medication,
-          title: `${r.medication} (${r.dose || ''})`,
-          patient: r.patient || currentUserName,
-          date: r.start_date,
-          endDate: r.end_date || null,
-          isChronic: !r.end_date,
-          time: r.start_time,
-          color: r.color || '#38BDF8',
-          colorName: r.color_name || 'Azul',
-          dose: r.dose || '',
-          frequency: r.frequency || 'Cada 8 hrs',
-          notes: r.notes || '',
-          photoUri: r.photoUri || r.photo_url || '',
-          type: 'recipe',
+        const parsedRecipes = await Promise.all((recipes || []).map(async (r: any) => {
+          const photo = await getMedicationPhoto(r.photo_url || r.photoUri || '', user.id, String(r.id));
+          if (photo.photoStoragePath && photo.photoStoragePath !== r.photo_url) {
+            const { error } = await supabase.from('recipes').update({ photo_url: photo.photoStoragePath }).eq('id', r.id);
+            if (error) console.warn('No se pudo actualizar la ruta de la foto:', error.message);
+          }
+          return {
+            id: `rec-${r.id}`,
+            rawId: r.id,
+            medication: r.medication,
+            title: `${r.medication} (${r.dose || ''})`,
+            patient: r.patient || currentUserName,
+            date: r.start_date,
+            endDate: r.end_date || null,
+            isChronic: !r.end_date,
+            time: r.start_time,
+            color: r.color || '#38BDF8',
+            colorName: r.color_name || 'Azul',
+            dose: r.dose || '',
+            frequency: r.frequency || 'Cada 8 hrs',
+            notes: r.notes || '',
+            photoUri: photo.photoUri,
+            photoStoragePath: photo.photoStoragePath,
+            type: 'recipe' as const,
+          };
         }));
 
         const parsedAppointments = (appointments || []).map((a) => ({
@@ -320,13 +336,15 @@ export default function App() {
           patient: a.patient || currentUserName,
           date: a.date,
           time: a.time,
-          color: '#D97706',
+          color: '#D97706' as const,
           colorName: 'Ámbar',
           dose: '',
-          type: 'appointment',
+          type: 'appointment' as const,
         }));
 
-        setEvents([...parsedRecipes, ...parsedAppointments]);
+        const nextEvents = [...parsedRecipes, ...parsedAppointments];
+        setEvents(nextEvents);
+        await syncUpcomingAttentionsWidget(nextEvents);
       }
     } catch (err: any) {
       Alert.alert('Error', 'No se pudieron cargar los datos.');
@@ -436,6 +454,7 @@ export default function App() {
     setRecipeForm((prev) => ({
       ...prev,
       photoUri: result.assets[0].uri,
+      photoStoragePath: '',
     }));
   };
 
@@ -477,6 +496,7 @@ export default function App() {
         startTime: event.time || '08:00',
         notes: event.notes || '',
         photoUri: event.photoUri || event.photo_url || '',
+        photoStoragePath: event.photoStoragePath || '',
         isChronic: !!event.isChronic,
       });
     } else {
@@ -511,25 +531,51 @@ export default function App() {
                 if (formType === 'recipe') {
                   const raw = await AsyncStorage.getItem(LOCAL_RECIPES_KEY);
                   const list = raw ? JSON.parse(raw) : [];
-                  const updated = list.filter((r: any) => r.id !== editingId);
+                  const updated = list.filter((r: any) => String(r.id) !== String(editingId));
+                  if (updated.length === list.length) throw new Error('No se encontró el medicamento en este teléfono.');
                   await AsyncStorage.setItem(LOCAL_RECIPES_KEY, JSON.stringify(updated));
                 } else {
                   const raw = await AsyncStorage.getItem(LOCAL_APPTS_KEY);
                   const list = raw ? JSON.parse(raw) : [];
-                  const updated = list.filter((a: any) => a.id !== editingId);
+                  const updated = list.filter((a: any) => String(a.id) !== String(editingId));
+                  if (updated.length === list.length) throw new Error('No se encontró la cita en este teléfono.');
                   await AsyncStorage.setItem(LOCAL_APPTS_KEY, JSON.stringify(updated));
                 }
               } else {
+                const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+                if (sessionError || !session) {
+                  throw new Error('La sesión expiró. Inicia sesión otra vez para eliminar este registro.');
+                }
                 const table = formType === 'recipe' ? 'recipes' : 'appointments';
+                const { data: existing, error: lookupError } = await supabase
+                  .from(table)
+                  .select('id')
+                  .eq('id', editingId)
+                  .maybeSingle();
+                if (lookupError) throw lookupError;
+                if (!existing) throw new Error('No se encontró el registro para eliminar. Actualiza la lista e inténtalo de nuevo.');
+
                 const { error } = await supabase.from(table).delete().eq('id', editingId);
                 if (error) throw error;
+
+                const { data: remaining, error: verifyError } = await supabase
+                  .from(table)
+                  .select('id')
+                  .eq('id', editingId)
+                  .maybeSingle();
+                if (verifyError) throw verifyError;
+                if (remaining) throw new Error('Supabase no eliminó el registro. Revisa la política DELETE de la tabla.');
               }
 
               setIsFormOpen(false);
               setEditingId(null);
               await fetchEvents();
             } catch (err: any) {
-              Alert.alert('Error al eliminar', err.message);
+              const message = String(err?.message || 'No se pudo eliminar el registro.');
+              Alert.alert(
+                /jwt expired|token expired/i.test(message) ? 'Sesión expirada' : 'Error al eliminar',
+                message
+              );
             } finally {
               setSaving(false);
             }
@@ -546,13 +592,13 @@ export default function App() {
       let activeUserId: string | null = null;
 
       if (!guest) {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError || !session) {
           Alert.alert('Sesión expirada', 'Inicia sesión nuevamente o ingresa en modo local.');
           setSaving(false);
           return;
         }
-        activeUserId = user.id;
+        activeUserId = session.user.id;
       }
 
       if (formType === 'recipe') {
@@ -563,14 +609,14 @@ export default function App() {
         }
 
         const fullDose = `${doseAmount.trim()} ${doseUnit}`;
-
         if (guest) {
           // Guardar directamente en AsyncStorage
           const raw = await AsyncStorage.getItem(LOCAL_RECIPES_KEY);
           let list = raw ? JSON.parse(raw) : [];
+          const recipeId = editingId || `rec_${Date.now()}`;
 
           const newRecipe = {
-            id: editingId || `rec_${Date.now()}`,
+            id: recipeId,
             patient: 'Usuario Local',
             medication: recipeForm.medication,
             dose: fullDose,
@@ -607,8 +653,15 @@ export default function App() {
             notes: recipeForm.notes,
           };
 
-          const payloadWithPhoto = recipeForm.photoUri
-            ? { ...payload, photo_url: recipeForm.photoUri }
+          let photoPath = recipeForm.photoStoragePath;
+          if (!photoPath && /^https?:\/\//i.test(recipeForm.photoUri)) {
+            photoPath = recipeForm.photoUri;
+          } else if (!photoPath && recipeForm.photoUri) {
+            if (!activeUserId) throw new Error('No se pudo identificar tu usuario para guardar la foto.');
+            photoPath = await uploadMedicationPhoto(recipeForm.photoUri, activeUserId, editingId);
+          }
+          const payloadWithPhoto = photoPath
+            ? { ...payload, photo_url: photoPath }
             : payload;
 
           try {
@@ -616,7 +669,7 @@ export default function App() {
               const { error } = await supabase.from('recipes').update(payloadWithPhoto).eq('id', editingId);
               if (error) throw error;
             } else {
-              const { error } = await supabase.from('recipes').insert([payloadWithPhoto]);
+              const { data, error } = await supabase.from('recipes').insert([payloadWithPhoto]).select('id').single();
               if (error) throw error;
             }
           } catch (err: any) {
@@ -628,7 +681,7 @@ export default function App() {
                 const { error } = await supabase.from('recipes').update(fallbackPayload).eq('id', editingId);
                 if (error) throw error;
               } else {
-                const { error } = await supabase.from('recipes').insert([fallbackPayload]);
+                const { data, error } = await supabase.from('recipes').insert([fallbackPayload]).select('id').single();
                 if (error) throw error;
               }
 
@@ -709,7 +762,12 @@ export default function App() {
       setEditingId(null);
       await fetchEvents();
     } catch (err: any) {
-      Alert.alert('Error al guardar', err.message);
+      const message = String(err?.message || 'No se pudo guardar el registro.');
+      if (/jwt expired|token expired/i.test(message)) {
+        Alert.alert('Sesión expirada', 'Vuelve a iniciar sesión para guardar la receta.');
+      } else {
+        Alert.alert('Error al guardar', message);
+      }
     } finally {
       setSaving(false);
     }

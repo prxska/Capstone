@@ -2,19 +2,17 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    NativeScrollEvent,
-    NativeSyntheticEvent,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Switch,
-    Text, TouchableOpacity,
-    View
+  Alert,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text, TouchableOpacity,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useAlarm } from '../context/AlarmContext';
 import { useTheme } from '../context/ThemeContext';
 import { LocalAuth } from '../lib/storage';
 import { supabase } from '../lib/supabase';
@@ -22,12 +20,9 @@ import { supabase } from '../lib/supabase';
 export default function ProfileScreen() {
   const router = useRouter();
   const { isDarkMode, toggleTheme, largeFont, toggleFont } = useTheme();
-  const { triggerManualAlarm } = useAlarm();
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState('');
   const [isGuest, setIsGuest] = useState(false);
-  const [testingAlarm, setTestingAlarm] = useState(false);
-  const [countdown, setCountdown] = useState<number | null>(null);
   const [showScrollPrompt, setShowScrollPrompt] = useState(true);
 
   useEffect(() => {
@@ -56,32 +51,6 @@ export default function ProfileScreen() {
     } else if (offsetY <= 10 && !showScrollPrompt) {
       setShowScrollPrompt(true);
     }
-  };
-
-  const handleTestAlarm = () => {
-    setTestingAlarm(true);
-    setCountdown(3);
-
-    let current = 3;
-    const timer = setInterval(() => {
-      current -= 1;
-      if (current <= 0) {
-        clearInterval(timer);
-        setCountdown(null);
-        setTestingAlarm(false);
-
-        triggerManualAlarm({
-          id: 'test-1',
-          medication: 'Paracetamol 500mg',
-          dose: '1 comprimido',
-          color: '#38BDF8',
-          colorName: 'Azul',
-          time: '08:00',
-        });
-      } else {
-        setCountdown(current);
-      }
-    }, 1000);
   };
 
   const handleSignOut = async () => {
@@ -167,68 +136,6 @@ export default function ProfileScreen() {
                 </Text>
               </View>
             )}
-          </View>
-
-          {/* Sección Diagnóstico y Prueba de Alarmas */}
-          <Text style={[
-            styles.sectionTitle,
-            isDarkMode && { color: '#CBD5E1' },
-            largeFont && { fontSize: 16 }
-          ]}>
-            SISTEMA DE ALARMAS Y HARDWARE
-          </Text>
-
-          <View style={[styles.card, isDarkMode && styles.darkCard]}>
-            <View style={styles.testCardContent}>
-              <View style={styles.testIconTextRow}>
-                <View style={[styles.iconBox, { backgroundColor: isDarkMode ? '#334155' : '#FEF3C7' }]}>
-                  <Ionicons name="alarm" size={26} color={isDarkMode ? '#FDE68A' : '#D97706'} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[
-                    styles.optionTitle,
-                    isDarkMode && { color: '#F1F5F9' },
-                    largeFont && { fontSize: 20 }
-                  ]}>
-                    Prueba de Alarma In-App
-                  </Text>
-                  <Text style={[
-                    styles.optionSubtitle,
-                    isDarkMode && { color: '#CBD5E1' },
-                    largeFont && { fontSize: 15 }
-                  ]}>
-                    Ejecuta vibración táctil y modal interactivo de confirmación.
-                  </Text>
-                </View>
-              </View>
-
-              <TouchableOpacity
-                style={[
-                  styles.testButton,
-                  testingAlarm && styles.testButtonDisabled,
-                  isDarkMode && styles.darkTestButton
-                ]}
-                onPress={handleTestAlarm}
-                disabled={testingAlarm}
-                activeOpacity={0.8}
-              >
-                {testingAlarm ? (
-                  <View style={styles.countdownRow}>
-                    <ActivityIndicator size="small" color="#FFF" />
-                    <Text style={[styles.testButtonText, largeFont && { fontSize: 18 }]}>
-                      Disparando en {countdown}s...
-                    </Text>
-                  </View>
-                ) : (
-                  <View style={styles.countdownRow}>
-                    <Ionicons name="play-circle-outline" size={22} color="#FFF" />
-                    <Text style={[styles.testButtonText, largeFont && { fontSize: 18 }]}>
-                      Probar alarma ahora (3s)
-                    </Text>
-                  </View>
-                )}
-              </TouchableOpacity>
-            </View>
           </View>
 
           {/* Sección Preferencias de Accesibilidad */}
@@ -458,40 +365,6 @@ const styles = StyleSheet.create({
       ios: { shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 8 },
       android: { elevation: 2 },
     }),
-  },
-  testCardContent: {
-    padding: 16,
-  },
-  testIconTextRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    marginBottom: 16,
-  },
-  testButton: {
-    backgroundColor: '#D97706',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  darkTestButton: {
-    backgroundColor: '#B45309',
-  },
-  testButtonDisabled: {
-    backgroundColor: '#78350F',
-    opacity: 0.8,
-  },
-  countdownRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  testButtonText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '800',
   },
   optionRow: {
     flexDirection: 'row',
