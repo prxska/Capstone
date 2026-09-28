@@ -1,16 +1,23 @@
-import React, { useEffect, useState } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
 import {
-  StyleSheet, View, Text, TouchableOpacity, Alert,
-  ScrollView, Switch, Platform, ActivityIndicator,
-  NativeSyntheticEvent, NativeScrollEvent
+    ActivityIndicator,
+    Alert,
+    NativeScrollEvent,
+    NativeSyntheticEvent,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Switch,
+    Text, TouchableOpacity,
+    View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { supabase } from '../lib/supabase';
-import { LocalAuth } from '../lib/storage';
-import { useTheme } from '../context/ThemeContext';
 import { useAlarm } from '../context/AlarmContext';
+import { useTheme } from '../context/ThemeContext';
+import { LocalAuth } from '../lib/storage';
+import { supabase } from '../lib/supabase';
 
 export default function ProfileScreen() {
   const router = useRouter();
