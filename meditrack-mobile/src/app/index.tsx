@@ -1,16 +1,27 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import {
-  StyleSheet, View, Text, TouchableOpacity, TextInput,
-  ScrollView, Modal, Platform, Alert, ActivityIndicator, Image,
-  NativeSyntheticEvent, NativeScrollEvent
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase } from '../lib/supabase';
-import { LocalAuth } from '../lib/storage';
+import * as ImagePicker from 'expo-image-picker';
+import { useRouter } from 'expo-router';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Image,
+  Modal,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../context/ThemeContext';
+import { LocalAuth } from '../lib/storage';
+import { supabase } from '../lib/supabase';
 
 const LOCAL_RECIPES_KEY = '@meditrack_local_recipes';
 const LOCAL_APPTS_KEY = '@meditrack_local_appointments';
@@ -88,6 +99,7 @@ const initialRecipeForm = {
   endDate: addDaysToDate(getTodayString(), 7),
   startTime: '08:00',
   notes: '',
+  photoUri: '',
   isChronic: false,
 };
 
@@ -242,6 +254,7 @@ export default function App() {
           dose: r.dose || '',
           frequency: r.frequency || 'Cada 8 hrs',
           notes: r.notes || '',
+          photoUri: r.photoUri || r.photo_url || '',
           type: 'recipe',
         }));
 
@@ -278,7 +291,7 @@ export default function App() {
         if (rError) console.error('Error al traer recetas:', rError.message);
         if (aError) console.error('Error al traer citas:', aError.message);
 
-        const parsedRecipes = (recipes || []).map((r) => ({
+        const parsedRecipes = (recipes || []).map((r: any) => ({
           id: `rec-${r.id}`,
           rawId: r.id,
           medication: r.medication,
@@ -293,6 +306,7 @@ export default function App() {
           dose: r.dose || '',
           frequency: r.frequency || 'Cada 8 hrs',
           notes: r.notes || '',
+          photoUri: r.photoUri || r.photo_url || '',
           type: 'recipe',
         }));
 
@@ -402,6 +416,29 @@ export default function App() {
     setPickerTarget(target);
   };
 
+  const handlePickMedicationPhoto = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Permiso requerido', 'Necesitamos acceso a tus fotos para guardar una referencia del medicamento.');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      quality: 0.8,
+    });
+
+    if (result.canceled || !result.assets?.[0]?.uri) {
+      return;
+    }
+
+    setRecipeForm((prev) => ({
+      ...prev,
+      photoUri: result.assets[0].uri,
+    }));
+  };
+
   const handleEditEvent = (event: any) => {
     setEditingId(event.rawId);
     setFormType(event.type);
@@ -439,6 +476,7 @@ export default function App() {
         endDate: event.endDate || addDaysToDate(event.date, 7),
         startTime: event.time || '08:00',
         notes: event.notes || '',
+        photoUri: event.photoUri || event.photo_url || '',
         isChronic: !!event.isChronic,
       });
     } else {
@@ -543,6 +581,7 @@ export default function App() {
             end_date: recipeForm.isChronic ? null : recipeForm.endDate,
             start_time: recipeForm.startTime,
             notes: recipeForm.notes,
+            photoUri: recipeForm.photoUri || '',
           };
 
           if (editingId) {
@@ -568,12 +607,38 @@ export default function App() {
             notes: recipeForm.notes,
           };
 
-          if (editingId) {
-            const { error } = await supabase.from('recipes').update(payload).eq('id', editingId);
-            if (error) throw error;
-          } else {
-            const { error } = await supabase.from('recipes').insert([payload]);
-            if (error) throw error;
+          const payloadWithPhoto = recipeForm.photoUri
+            ? { ...payload, photo_url: recipeForm.photoUri }
+            : payload;
+
+          try {
+            if (editingId) {
+              const { error } = await supabase.from('recipes').update(payloadWithPhoto).eq('id', editingId);
+              if (error) throw error;
+            } else {
+              const { error } = await supabase.from('recipes').insert([payloadWithPhoto]);
+              if (error) throw error;
+            }
+          } catch (err: any) {
+            const message = String(err?.message || '');
+            if (recipeForm.photoUri && message.includes('photo_url')) {
+              const fallbackPayload = payload;
+
+              if (editingId) {
+                const { error } = await supabase.from('recipes').update(fallbackPayload).eq('id', editingId);
+                if (error) throw error;
+              } else {
+                const { error } = await supabase.from('recipes').insert([fallbackPayload]);
+                if (error) throw error;
+              }
+
+              Alert.alert(
+                'Foto no sincronizada',
+                'La receta se guardó, pero tu base de datos aún no tiene la columna photo_url. Agrega esta columna en Supabase para habilitar la foto.'
+              );
+            } else {
+              throw err;
+            }
           }
         }
 
@@ -891,12 +956,20 @@ export default function App() {
                         style={styles.agendaPencilIcon}
                       />
                     </View>
-                    <Text style={[styles.agendaTime, isDarkMode && { color: '#94A3B8' }, largeFont && { fontSize: 15 }]}>
+                    <Text style={[styles.agendaTime, isDarkMode && { color: '#CBD5E1' }, largeFont && { fontSize: 15 }]}>
                       {event.type === 'recipe' && event.colorName ? `Envase/Pastilla: ${event.colorName} • ` : ''}
                       {event.time} - {event.date} {event.endDate ? `al ${event.endDate}` : (event.type === 'recipe' ? '(tratamiento crónico)' : '')} ({event.patient})
                       {event.location ? ` • Lugar: ${event.location}` : ''}
                     </Text>
                   </View>
+
+                  {event.type === 'recipe' && event.photoUri ? (
+                    <Image
+                      source={{ uri: event.photoUri }}
+                      style={styles.recipePhotoCardThumb}
+                      resizeMode="cover"
+                    />
+                  ) : null}
                 </TouchableOpacity>
               );
             })}
@@ -934,7 +1007,7 @@ export default function App() {
                 </Text>
               </View>
               <TouchableOpacity onPress={() => setIsFormOpen(false)}>
-                <Text style={[styles.closeButton, isDarkMode && { color: '#94A3B8' }]}>×</Text>
+                <Text style={[styles.closeButton, isDarkMode && { color: '#CBD5E1' }]}>×</Text>
               </TouchableOpacity>
             </View>
 
@@ -950,7 +1023,7 @@ export default function App() {
                     <>
                       {/* Indicador de pasos: se muestra la info de a poco para no abrumar */}
                       <View style={styles.stepHeaderRow}>
-                        <Text style={[styles.stepCounterText, isDarkMode && { color: '#94A3B8' }]}>
+                        <Text style={[styles.stepCounterText, isDarkMode && { color: '#CBD5E1' }]}>
                           Paso {recipeStep + 1} de {RECIPE_STEP_TITLES.length}
                         </Text>
                         <View style={styles.stepDotsRow}>
@@ -1013,13 +1086,38 @@ export default function App() {
                                     size={20}
                                     color={isSelected ? '#FFF' : isDarkMode ? '#38BDF8' : '#36B9CC'}
                                   />
-                                  <Text style={[styles.unitOptionText, isSelected && { color: '#FFF' }]}>
+                                  <Text style={[
+                                    styles.unitOptionText,
+                                    isDarkMode && { color: '#F8FAFC' },
+                                    isSelected && { color: '#FFF' },
+                                  ]}>
                                     {u.label}
                                   </Text>
                                 </TouchableOpacity>
                               );
                             })}
                           </View>
+
+                          <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Foto del medicamento</Text>
+                          <TouchableOpacity
+                            style={[styles.photoPickerButton, isDarkMode && styles.darkPhotoPickerButton]}
+                            onPress={handlePickMedicationPhoto}
+                          >
+                            <Ionicons name="camera" size={18} color={isDarkMode ? '#F8FAFC' : '#0F172A'} />
+                            <Text style={[styles.photoPickerText, isDarkMode && { color: '#F8FAFC' }]}>
+                              {recipeForm.photoUri ? 'Cambiar foto' : 'Agregar foto'}
+                            </Text>
+                          </TouchableOpacity>
+
+                          {recipeForm.photoUri ? (
+                            <View style={[styles.photoPreviewCard, isDarkMode && styles.darkPhotoPreviewCard]}>
+                              <Image
+                                source={{ uri: recipeForm.photoUri }}
+                                style={styles.photoPreviewImage}
+                                resizeMode="cover"
+                              />
+                            </View>
+                          ) : null}
 
                           <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>
                             Color pastilla/envase: <Text style={{ color: selectedColor.id, fontWeight: 'bold' }}>{selectedColor.name}</Text>
@@ -1091,7 +1189,7 @@ export default function App() {
                           </Text>
                           <View style={[styles.timePickerContainer, isDarkMode && styles.darkTimePickerContainer]}>
                             <View style={styles.timeStepperGroup}>
-                              <Text style={[styles.stepperSubtext, isDarkMode && { color: '#94A3B8' }]}>HORA</Text>
+                              <Text style={[styles.stepperSubtext, isDarkMode && { color: '#CBD5E1' }]}>HORA</Text>
                               <View style={styles.stepperRow}>
                                 <TouchableOpacity
                                   style={[styles.stepperBtn, isDarkMode && styles.darkStepperBtn]}
@@ -1115,10 +1213,10 @@ export default function App() {
                               </View>
                             </View>
 
-                            <Text style={[styles.timeSeparator, isDarkMode && { color: '#64748B' }]}>:</Text>
+                            <Text style={[styles.timeSeparator, isDarkMode && { color: '#E2E8F0' }]}>:</Text>
 
                             <View style={styles.timeStepperGroup}>
-                              <Text style={[styles.stepperSubtext, isDarkMode && { color: '#94A3B8' }]}>MINUTOS</Text>
+                              <Text style={[styles.stepperSubtext, isDarkMode && { color: '#CBD5E1' }]}>MINUTOS</Text>
                               <View style={styles.stepperRow}>
                                 <TouchableOpacity
                                   style={[styles.stepperBtn, isDarkMode && styles.darkStepperBtn]}
@@ -1163,7 +1261,11 @@ export default function App() {
                                     handleRecipeChange('frequency', f.label);
                                   }}
                                 >
-                                  <Text style={[styles.freqChipText, isSelected && { color: '#FFF' }]}>
+                                  <Text style={[
+                                  styles.freqChipText,
+                                  isDarkMode && { color: '#F8FAFC' },
+                                  isSelected && { color: '#FFF' },
+                                ]}>
                                     {f.label}
                                   </Text>
                                 </TouchableOpacity>
@@ -1174,14 +1276,20 @@ export default function App() {
                               style={[
                                 styles.freqChip,
                                 isDarkMode && styles.darkFreqChip,
-                                isCustomFrequency && styles.freqChipSelected,
+                                isCustomFrequency && styles.customFreqChipSelected,
+                                !isCustomFrequency && styles.customFreqChipIdle,
                               ]}
                               onPress={() => {
                                 setIsCustomFrequency(true);
                                 handleRecipeChange('frequency', `Cada ${selectedInterval} hrs`);
                               }}
                             >
-                              <Text style={[styles.freqChipText, isCustomFrequency && { color: '#FFF' }]}>
+                              <Text style={[
+                                styles.freqChipText,
+                                isDarkMode && { color: '#F8FAFC' },
+                                !isCustomFrequency && { color: '#C2410C' },
+                                isCustomFrequency && { color: '#FFF' },
+                              ]}>
                                 Personalizado
                               </Text>
                             </TouchableOpacity>
@@ -1190,7 +1298,7 @@ export default function App() {
                           {isCustomFrequency && (
                             <View style={[styles.timePickerContainer, styles.customFreqContainer, isDarkMode && styles.darkTimePickerContainer]}>
                               <View style={styles.timeStepperGroup}>
-                                <Text style={[styles.stepperSubtext, isDarkMode && { color: '#94A3B8' }]}>
+                                <Text style={[styles.stepperSubtext, isDarkMode && { color: '#CBD5E1' }]}>
                                   CADA CUÁNTAS HORAS
                                 </Text>
                                 <View style={styles.stepperRow}>
@@ -1363,6 +1471,75 @@ export default function App() {
                         </Text>
                       </View>
 
+                      {/* Selector táctil accesible para la hora de la cita */}
+                      <Text style={[styles.label, isDarkMode && styles.darkSubtext, { marginTop: 4 }]}>
+                        Hora de la Cita
+                      </Text>
+                      <View style={[styles.timePickerContainer, isDarkMode && styles.darkTimePickerContainer]}>
+                        <View style={styles.timeStepperGroup}>
+                          <Text style={[styles.stepperSubtext, isDarkMode && { color: '#CBD5E1' }]}>HORA</Text>
+                          <View style={styles.stepperRow}>
+                            <TouchableOpacity
+                              style={[styles.stepperBtn, isDarkMode && styles.darkStepperBtn]}
+                              onPress={() => adjustAppointmentTime('hour', -1)}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            >
+                              <Ionicons name="remove" size={20} color="#D97706" />
+                            </TouchableOpacity>
+
+                            <Text style={[styles.stepperNumber, isDarkMode && { color: '#F1F5F9' }]}>
+                              {(appointmentForm.time || '10:00').split(':')[0]}
+                            </Text>
+
+                            <TouchableOpacity
+                              style={[styles.stepperBtn, isDarkMode && styles.darkStepperBtn]}
+                              onPress={() => adjustAppointmentTime('hour', 1)}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            >
+                              <Ionicons name="add" size={20} color="#D97706" />
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+
+                        <Text style={[styles.timeSeparator, isDarkMode && { color: '#E2E8F0' }]}>:</Text>
+
+                        <View style={styles.timeStepperGroup}>
+                          <Text style={[styles.stepperSubtext, isDarkMode && { color: '#CBD5E1' }]}>MINUTOS</Text>
+                          <View style={styles.stepperRow}>
+                            <TouchableOpacity
+                              style={[styles.stepperBtn, isDarkMode && styles.darkStepperBtn]}
+                              onPress={() => adjustAppointmentTime('minute', -15)}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            >
+                              <Ionicons name="remove" size={20} color="#D97706" />
+                            </TouchableOpacity>
+
+                            <Text style={[styles.stepperNumber, isDarkMode && { color: '#F1F5F9' }]}>
+                              {(appointmentForm.time || '10:00').split(':')[1]}
+                            </Text>
+
+                            <TouchableOpacity
+                              style={[styles.stepperBtn, isDarkMode && styles.darkStepperBtn]}
+                              onPress={() => adjustAppointmentTime('minute', 15)}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            >
+                              <Ionicons name="add" size={20} color="#D97706" />
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      </View>
+
+                      <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Fecha Cita</Text>
+                      <TouchableOpacity
+                        style={[styles.dateTriggerButton, isDarkMode && styles.darkDateTrigger]}
+                        onPress={() => openPickerModal('appDate')}
+                      >
+                        <Ionicons name="calendar-outline" size={18} color="#D97706" />
+                        <Text style={[styles.dateTriggerText, isDarkMode && { color: '#F1F5F9' }]}>
+                          {appointmentForm.date}
+                        </Text>
+                      </TouchableOpacity>
+
                       <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Médico Tratante</Text>
                       <TextInput
                         style={[styles.input, isDarkMode && styles.darkInput]}
@@ -1390,74 +1567,6 @@ export default function App() {
                         onChangeText={(t) => handleAppointmentChange('location', t)}
                       />
 
-                      <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Fecha Cita</Text>
-                      <TouchableOpacity
-                        style={[styles.dateTriggerButton, isDarkMode && styles.darkDateTrigger]}
-                        onPress={() => openPickerModal('appDate')}
-                      >
-                        <Ionicons name="calendar-outline" size={18} color="#D97706" />
-                        <Text style={[styles.dateTriggerText, isDarkMode && { color: '#F1F5F9' }]}>
-                          {appointmentForm.date}
-                        </Text>
-                      </TouchableOpacity>
-
-                      {/* Selector táctil accesible para la hora de la cita */}
-                      <Text style={[styles.label, isDarkMode && styles.darkSubtext, { marginTop: 4 }]}>
-                        Hora de la Cita
-                      </Text>
-                      <View style={[styles.timePickerContainer, isDarkMode && styles.darkTimePickerContainer]}>
-                        <View style={styles.timeStepperGroup}>
-                          <Text style={[styles.stepperSubtext, isDarkMode && { color: '#94A3B8' }]}>HORA</Text>
-                          <View style={styles.stepperRow}>
-                            <TouchableOpacity
-                              style={[styles.stepperBtn, isDarkMode && styles.darkStepperBtn]}
-                              onPress={() => adjustAppointmentTime('hour', -1)}
-                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                            >
-                              <Ionicons name="remove" size={20} color="#D97706" />
-                            </TouchableOpacity>
-
-                            <Text style={[styles.stepperNumber, isDarkMode && { color: '#F1F5F9' }]}>
-                              {(appointmentForm.time || '10:00').split(':')[0]}
-                            </Text>
-
-                            <TouchableOpacity
-                              style={[styles.stepperBtn, isDarkMode && styles.darkStepperBtn]}
-                              onPress={() => adjustAppointmentTime('hour', 1)}
-                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                            >
-                              <Ionicons name="add" size={20} color="#D97706" />
-                            </TouchableOpacity>
-                          </View>
-                        </View>
-
-                        <Text style={[styles.timeSeparator, isDarkMode && { color: '#64748B' }]}>:</Text>
-
-                        <View style={styles.timeStepperGroup}>
-                          <Text style={[styles.stepperSubtext, isDarkMode && { color: '#94A3B8' }]}>MINUTOS</Text>
-                          <View style={styles.stepperRow}>
-                            <TouchableOpacity
-                              style={[styles.stepperBtn, isDarkMode && styles.darkStepperBtn]}
-                              onPress={() => adjustAppointmentTime('minute', -15)}
-                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                            >
-                              <Ionicons name="remove" size={20} color="#D97706" />
-                            </TouchableOpacity>
-
-                            <Text style={[styles.stepperNumber, isDarkMode && { color: '#F1F5F9' }]}>
-                              {(appointmentForm.time || '10:00').split(':')[1]}
-                            </Text>
-
-                            <TouchableOpacity
-                              style={[styles.stepperBtn, isDarkMode && styles.darkStepperBtn]}
-                              onPress={() => adjustAppointmentTime('minute', 15)}
-                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                            >
-                              <Ionicons name="add" size={20} color="#D97706" />
-                            </TouchableOpacity>
-                          </View>
-                        </View>
-                      </View>
                     </>
                   )}
 
@@ -1598,8 +1707,8 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#102A43',
   },
-  darkText: { color: '#F1F5F9' },
-  darkSubtext: { color: '#94A3B8' },
+  darkText: { color: '#F8FAFC' },
+  darkSubtext: { color: '#CBD5E1' },
   headerPanel: {
     backgroundColor: '#FFF',
     borderRadius: 20,
@@ -1721,6 +1830,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#F1F5F9',
     overflow: 'hidden',
+  },
+  recipePhotoCardThumb: {
+    width: 70,
+    height: 70,
+    borderRadius: 12,
+    marginLeft: 12,
+    backgroundColor: '#E2E8F0',
   },
   appointmentAgendaCard: {
     backgroundColor: '#FFFBEB',
@@ -1947,6 +2063,44 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#102A43',
   },
+  photoPickerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#E0F2FE',
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: '#BAE6FD',
+    marginBottom: 12,
+  },
+  darkPhotoPickerButton: {
+    backgroundColor: '#1E293B',
+    borderColor: '#334155',
+  },
+  photoPickerText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  photoPreviewCard: {
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginBottom: 12,
+  },
+  darkPhotoPreviewCard: {
+    backgroundColor: '#0F172A',
+    borderColor: '#334155',
+  },
+  photoPreviewImage: {
+    width: '100%',
+    height: 180,
+  },
   colorPaletteRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -2016,6 +2170,14 @@ const styles = StyleSheet.create({
   freqChipSelected: {
     backgroundColor: '#36B9CC',
     borderColor: '#36B9CC',
+  },
+  customFreqChipSelected: {
+    backgroundColor: '#D97706',
+    borderColor: '#D97706',
+  },
+  customFreqChipIdle: {
+    backgroundColor: '#FFF7ED',
+    borderColor: '#FDBA74',
   },
   freqChipText: {
     fontSize: 13,

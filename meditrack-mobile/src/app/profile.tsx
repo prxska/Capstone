@@ -146,7 +146,7 @@ export default function ProfileScreen() {
             </Text>
             <Text style={[
               styles.userEmail,
-              isDarkMode && { color: '#94A3B8' },
+              isDarkMode && { color: '#CBD5E1' },
               largeFont && { fontSize: 18 }
             ]}>
               {userEmail}
@@ -165,7 +165,7 @@ export default function ProfileScreen() {
           {/* Sección Diagnóstico y Prueba de Alarmas */}
           <Text style={[
             styles.sectionTitle,
-            isDarkMode && { color: '#94A3B8' },
+            isDarkMode && { color: '#CBD5E1' },
             largeFont && { fontSize: 16 }
           ]}>
             SISTEMA DE ALARMAS Y HARDWARE
@@ -187,7 +187,7 @@ export default function ProfileScreen() {
                   </Text>
                   <Text style={[
                     styles.optionSubtitle,
-                    isDarkMode && { color: '#94A3B8' },
+                    isDarkMode && { color: '#CBD5E1' },
                     largeFont && { fontSize: 15 }
                   ]}>
                     Ejecuta vibración táctil y modal interactivo de confirmación.
@@ -227,7 +227,7 @@ export default function ProfileScreen() {
           {/* Sección Preferencias de Accesibilidad */}
           <Text style={[
             styles.sectionTitle,
-            isDarkMode && { color: '#94A3B8' },
+            isDarkMode && { color: '#CBD5E1' },
             largeFont && { fontSize: 16 }
           ]}>
             PREFERENCIAS DE VISUALIZACIÓN
@@ -253,7 +253,7 @@ export default function ProfileScreen() {
                   </Text>
                   <Text style={[
                     styles.optionSubtitle,
-                    isDarkMode && { color: '#94A3B8' },
+                    isDarkMode && { color: '#CBD5E1' },
                     largeFont && { fontSize: 16 }
                   ]}>
                     {isDarkMode ? 'Activado (Fondo oscuro)' : 'Desactivado (Fondo claro)'}
@@ -289,7 +289,7 @@ export default function ProfileScreen() {
                   </Text>
                   <Text style={[
                     styles.optionSubtitle,
-                    isDarkMode && { color: '#94A3B8' },
+                    isDarkMode && { color: '#CBD5E1' },
                     largeFont && { fontSize: 16 }
                   ]}>
                     {largeFont ? 'Letras grandes y legibles' : 'Tamaño normal'}
