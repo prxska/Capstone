@@ -584,7 +584,6 @@ export default function App() {
       ]
     );
   };
-
   const handleSubmit = async () => {
     setSaving(true);
     try {
