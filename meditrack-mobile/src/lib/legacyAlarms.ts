@@ -1,12 +1,15 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Notifications from 'expo-notifications';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 
 const ALARM_CLEANUP_KEY = '@meditrack_alarm_cleanup_complete_v1';
 
 export async function clearLegacyMedicationAlarms() {
+  // expo-notifications lanza error al importarse en Expo Go (Android, SDK 53+)
+  if (Constants.executionEnvironment === ExecutionEnvironment.StoreClient) return;
   if (await AsyncStorage.getItem(ALARM_CLEANUP_KEY)) return;
 
   try {
+    const Notifications = await import('expo-notifications');
     const scheduled = await Notifications.getAllScheduledNotificationsAsync();
     const alarmNotifications = scheduled.filter((notification) => {
       const title = String(notification.content.title || '');

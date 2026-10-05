@@ -88,7 +88,7 @@ export default function ProfileScreen() {
         <Text style={[
           styles.headerTitle,
           isDarkMode && { color: '#F1F5F9' },
-          largeFont && { fontSize: 26 }
+          largeFont && { fontSize: 28 }
         ]}>
           Mi Perfil
         </Text>
@@ -116,14 +116,14 @@ export default function ProfileScreen() {
             <Text style={[
               styles.userName,
               isDarkMode && { color: '#F1F5F9' },
-              largeFont && { fontSize: 26 }
+              largeFont && { fontSize: 28 }
             ]}>
               {userName}
             </Text>
             <Text style={[
               styles.userEmail,
               isDarkMode && { color: '#CBD5E1' },
-              largeFont && { fontSize: 18 }
+              largeFont && { fontSize: 20 }
             ]}>
               {userEmail}
             </Text>
@@ -131,7 +131,7 @@ export default function ProfileScreen() {
             {isGuest && (
               <View style={styles.guestWarningBox}>
                 <Ionicons name="warning" size={20} color="#D97706" />
-                <Text style={[styles.guestWarningText, largeFont && { fontSize: 16 }]}>
+                <Text style={[styles.guestWarningText, largeFont && { fontSize: 18 }]}>
                   Modo local activo: Sin respaldo en la nube.
                 </Text>
               </View>
@@ -142,7 +142,7 @@ export default function ProfileScreen() {
           <Text style={[
             styles.sectionTitle,
             isDarkMode && { color: '#CBD5E1' },
-            largeFont && { fontSize: 16 }
+            largeFont && { fontSize: 18 }
           ]}>
             PREFERENCIAS DE VISUALIZACIÓN
           </Text>
@@ -161,14 +161,14 @@ export default function ProfileScreen() {
                   <Text style={[
                     styles.optionTitle,
                     isDarkMode && { color: '#F1F5F9' },
-                    largeFont && { fontSize: 22 }
+                    largeFont && { fontSize: 24 }
                   ]}>
                     Modo Oscuro
                   </Text>
                   <Text style={[
                     styles.optionSubtitle,
                     isDarkMode && { color: '#CBD5E1' },
-                    largeFont && { fontSize: 16 }
+                    largeFont && { fontSize: 18 }
                   ]}>
                     {isDarkMode ? 'Activado (Fondo oscuro)' : 'Desactivado (Fondo claro)'}
                   </Text>
@@ -197,14 +197,14 @@ export default function ProfileScreen() {
                   <Text style={[
                     styles.optionTitle,
                     isDarkMode && { color: '#F1F5F9' },
-                    largeFont && { fontSize: 22 }
+                    largeFont && { fontSize: 24 }
                   ]}>
                     Texto Aumentado
                   </Text>
                   <Text style={[
                     styles.optionSubtitle,
                     isDarkMode && { color: '#CBD5E1' },
-                    largeFont && { fontSize: 16 }
+                    largeFont && { fontSize: 18 }
                   ]}>
                     {largeFont ? 'Letras grandes y legibles' : 'Tamaño normal'}
                   </Text>
@@ -228,7 +228,7 @@ export default function ProfileScreen() {
             <Ionicons name="log-out-outline" size={24} color="#EF4444" style={{ marginRight: 8 }} />
             <Text style={[
               styles.signOutText,
-              largeFont && { fontSize: 20 }
+              largeFont && { fontSize: 22 }
             ]}>
               {isGuest ? 'Salir del Modo Local' : 'Cerrar Sesión'}
             </Text>
@@ -282,7 +282,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#1E293B',
   },
   headerTitle: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: '800',
     color: '#102A43',
   },
@@ -318,13 +318,13 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   userName: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '800',
     color: '#0F172A',
     textAlign: 'center',
   },
   userEmail: {
-    fontSize: 14,
+    fontSize: 16,
     color: '#64748B',
     marginTop: 4,
     textAlign: 'center',
@@ -343,11 +343,11 @@ const styles = StyleSheet.create({
   },
   guestWarningText: {
     color: '#92400E',
-    fontSize: 13,
+    fontSize: 16,
     fontWeight: '700',
   },
   sectionTitle: {
-    fontSize: 13,
+    fontSize: 16,
     fontWeight: '800',
     color: '#64748B',
     marginBottom: 10,
@@ -388,12 +388,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   optionTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '700',
     color: '#0F172A',
   },
   optionSubtitle: {
-    fontSize: 13,
+    fontSize: 16,
     color: '#64748B',
     marginTop: 2,
   },
@@ -417,7 +417,7 @@ const styles = StyleSheet.create({
   },
   signOutText: {
     color: '#EF4444',
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '800',
   },
   floatingPromptContainer: {
@@ -445,7 +445,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#1E293B',
   },
   floatingPromptText: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '700',
     color: '#475569',
   },

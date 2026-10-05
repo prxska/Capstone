@@ -2,6 +2,7 @@ import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import { AppState, Platform } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { ThemeProvider, useTheme } from '../context/ThemeContext';
 import { clearLegacyMedicationAlarms } from '../lib/legacyAlarms';
 import { LocalAuth } from '../lib/storage';
@@ -93,8 +94,10 @@ function RootNavigation() {
 
 export default function RootLayout() {
   return (
-    <ThemeProvider>
-      <RootNavigation />
-    </ThemeProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ThemeProvider>
+        <RootNavigation />
+      </ThemeProvider>
+    </GestureHandlerRootView>
   );
 }

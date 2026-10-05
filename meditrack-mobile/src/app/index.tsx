@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
+import Swipeable, { type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
 import {
   ActivityIndicator,
   Alert,
@@ -137,6 +138,32 @@ function getChileTodayString() {
   return `${year}-${month}-${day}`;
 }
 
+const MAX_EVENTS_PER_DAY_CELL = 2;
+
+const fullWeekDays = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+
+function getEventsForDate(events: any[], dateKey: string) {
+  return events.filter((event) => {
+    if (event.type === 'recipe') {
+      // Sin endDate = tratamiento crónico: no tiene fecha límite
+      return dateKey >= event.date && (!event.endDate || dateKey <= event.endDate);
+    }
+    return event.date === dateKey;
+  });
+}
+
+// "Cada 8 hrs", "Una al día (24 hrs)" o una frecuencia personalizada "Cada N hrs"
+function getIntervalHours(frequency: string): number {
+  const match = /(\d+)\s*hrs/.exec(frequency || '');
+  const hours = match ? parseInt(match[1], 10) : 24;
+  return hours > 0 ? hours : 24;
+}
+
+function formatLongDate(dateKey: string) {
+  const date = new Date(dateKey + 'T00:00:00');
+  return `${fullWeekDays[date.getDay()]} ${date.getDate()} de ${monthNames[date.getMonth()].toLowerCase()}`;
+}
+
 function buildCalendarDays(year: number, month: number) {
   const monthStart = new Date(year, month, 1);
   const startDay = new Date(monthStart);
@@ -177,6 +204,7 @@ export default function App() {
   const goToNextRecipeStep = () => setRecipeStep((s) => Math.min(s + 1, RECIPE_STEP_TITLES.length - 1));
   const goToPrevRecipeStep = () => setRecipeStep((s) => Math.max(s - 1, 0));
 
+  const [dayDetailKey, setDayDetailKey] = useState<string | null>(null);
   const [pickerTarget, setPickerTarget] = useState<'startDate' | 'endDate' | 'appDate' | null>(null);
   const [pickerMonth, setPickerMonth] = useState(new Date());
 
@@ -227,6 +255,28 @@ export default function App() {
       return dateA.getTime() - dateB.getTime();
     });
   }, [events]);
+
+  // Cada toma del día (una por horario) y cada cita, ordenadas por hora
+  const dayDetailItems = useMemo(() => {
+    if (!dayDetailKey) return [];
+    const items = getEventsForDate(events, dayDetailKey).flatMap((event) => {
+      if (event.type === 'recipe') {
+        return calculateDoseTimes(event.time, getIntervalHours(event.frequency)).map((time) => ({
+          key: `${event.id}-${time}`,
+          time,
+          event,
+        }));
+      }
+      return [{ key: event.id, time: event.time || '00:00', event }];
+    });
+    return items.sort((a, b) => a.time.localeCompare(b.time));
+  }, [events, dayDetailKey]);
+
+  const openEventFromDayDetail = (event: any) => {
+    setDayDetailKey(null);
+    // Espera a que se cierre el modal del día antes de abrir el formulario (iOS no apila modales)
+    setTimeout(() => handleEditEvent(event), 300);
+  };
 
   async function fetchEvents() {
     setLoading(true);
@@ -513,76 +563,88 @@ export default function App() {
     setIsFormOpen(true);
   };
 
-  const handleDelete = async () => {
-    if (!editingId) return;
+  const deleteRecord = async (recordId: string, recordType: 'recipe' | 'appointment') => {
+    setSaving(true);
+    try {
+      if (isGuest) {
+        if (recordType === 'recipe') {
+          const raw = await AsyncStorage.getItem(LOCAL_RECIPES_KEY);
+          const list = raw ? JSON.parse(raw) : [];
+          const updated = list.filter((r: any) => String(r.id) !== String(recordId));
+          if (updated.length === list.length) throw new Error('No se encontró el medicamento en este teléfono.');
+          await AsyncStorage.setItem(LOCAL_RECIPES_KEY, JSON.stringify(updated));
+        } else {
+          const raw = await AsyncStorage.getItem(LOCAL_APPTS_KEY);
+          const list = raw ? JSON.parse(raw) : [];
+          const updated = list.filter((a: any) => String(a.id) !== String(recordId));
+          if (updated.length === list.length) throw new Error('No se encontró la cita en este teléfono.');
+          await AsyncStorage.setItem(LOCAL_APPTS_KEY, JSON.stringify(updated));
+        }
+      } else {
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError || !session) {
+          throw new Error('La sesión expiró. Inicia sesión otra vez para eliminar este registro.');
+        }
+        const table = recordType === 'recipe' ? 'recipes' : 'appointments';
+        const { data: existing, error: lookupError } = await supabase
+          .from(table)
+          .select('id')
+          .eq('id', recordId)
+          .maybeSingle();
+        if (lookupError) throw lookupError;
+        if (!existing) throw new Error('No se encontró el registro para eliminar. Actualiza la lista e inténtalo de nuevo.');
 
+        const { error } = await supabase.from(table).delete().eq('id', recordId);
+        if (error) throw error;
+
+        const { data: remaining, error: verifyError } = await supabase
+          .from(table)
+          .select('id')
+          .eq('id', recordId)
+          .maybeSingle();
+        if (verifyError) throw verifyError;
+        if (remaining) throw new Error('Supabase no eliminó el registro. Revisa la política DELETE de la tabla.');
+      }
+
+      if (String(editingId) === String(recordId)) {
+        setIsFormOpen(false);
+        setEditingId(null);
+      }
+      await fetchEvents();
+    } catch (err: any) {
+      const message = String(err?.message || 'No se pudo eliminar el registro.');
+      Alert.alert(
+        /jwt expired|token expired/i.test(message) ? 'Sesión expirada' : 'Error al eliminar',
+        message
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const confirmDelete = (
+    recordId: string,
+    recordType: 'recipe' | 'appointment',
+    title?: string,
+    onCancel?: () => void
+  ) => {
+    const what = recordType === 'recipe' ? 'el medicamento' : 'la cita';
     Alert.alert(
-      'Eliminar registro',
-      '¿Estás seguro de que deseas borrar este registro?',
+      recordType === 'recipe' ? 'Eliminar medicamento' : 'Eliminar cita',
+      title
+        ? `¿Estás seguro de que deseas eliminar ${what} "${title}"?`
+        : `¿Estás seguro de que deseas eliminar ${what}?`,
       [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Eliminar',
-          style: 'destructive',
-          onPress: async () => {
-            setSaving(true);
-            try {
-              if (isGuest) {
-                if (formType === 'recipe') {
-                  const raw = await AsyncStorage.getItem(LOCAL_RECIPES_KEY);
-                  const list = raw ? JSON.parse(raw) : [];
-                  const updated = list.filter((r: any) => String(r.id) !== String(editingId));
-                  if (updated.length === list.length) throw new Error('No se encontró el medicamento en este teléfono.');
-                  await AsyncStorage.setItem(LOCAL_RECIPES_KEY, JSON.stringify(updated));
-                } else {
-                  const raw = await AsyncStorage.getItem(LOCAL_APPTS_KEY);
-                  const list = raw ? JSON.parse(raw) : [];
-                  const updated = list.filter((a: any) => String(a.id) !== String(editingId));
-                  if (updated.length === list.length) throw new Error('No se encontró la cita en este teléfono.');
-                  await AsyncStorage.setItem(LOCAL_APPTS_KEY, JSON.stringify(updated));
-                }
-              } else {
-                const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-                if (sessionError || !session) {
-                  throw new Error('La sesión expiró. Inicia sesión otra vez para eliminar este registro.');
-                }
-                const table = formType === 'recipe' ? 'recipes' : 'appointments';
-                const { data: existing, error: lookupError } = await supabase
-                  .from(table)
-                  .select('id')
-                  .eq('id', editingId)
-                  .maybeSingle();
-                if (lookupError) throw lookupError;
-                if (!existing) throw new Error('No se encontró el registro para eliminar. Actualiza la lista e inténtalo de nuevo.');
-
-                const { error } = await supabase.from(table).delete().eq('id', editingId);
-                if (error) throw error;
-
-                const { data: remaining, error: verifyError } = await supabase
-                  .from(table)
-                  .select('id')
-                  .eq('id', editingId)
-                  .maybeSingle();
-                if (verifyError) throw verifyError;
-                if (remaining) throw new Error('Supabase no eliminó el registro. Revisa la política DELETE de la tabla.');
-              }
-
-              setIsFormOpen(false);
-              setEditingId(null);
-              await fetchEvents();
-            } catch (err: any) {
-              const message = String(err?.message || 'No se pudo eliminar el registro.');
-              Alert.alert(
-                /jwt expired|token expired/i.test(message) ? 'Sesión expirada' : 'Error al eliminar',
-                message
-              );
-            } finally {
-              setSaving(false);
-            }
-          },
-        },
-      ]
+        { text: 'Cancelar', style: 'cancel', onPress: onCancel },
+        { text: 'Eliminar', style: 'destructive', onPress: () => deleteRecord(recordId, recordType) },
+      ],
+      { cancelable: true, onDismiss: onCancel }
     );
+  };
+
+  const handleDelete = () => {
+    if (!editingId) return;
+    confirmDelete(editingId, formType);
   };
   const handleSubmit = async () => {
     setSaving(true);
@@ -807,7 +869,7 @@ export default function App() {
               resizeMode="contain"
             />
             <View>
-              <Text style={[styles.title, isDarkMode && { color: '#F1F5F9' }, largeFont && { fontSize: 26 }]}>
+              <Text style={[styles.title, isDarkMode && { color: '#F1F5F9' }, largeFont && { fontSize: 28 }]}>
                 MediTrack
               </Text>
             </View>
@@ -853,7 +915,7 @@ export default function App() {
                 <Ionicons name="chevron-back" size={26} color={isDarkMode ? '#7DD3FC' : '#FFF'} />
               </TouchableOpacity>
 
-              <Text style={[styles.monthLabel, isDarkMode && { color: '#F1F5F9' }, largeFont && { fontSize: 22 }]}>
+              <Text style={[styles.monthLabel, isDarkMode && { color: '#F1F5F9' }, largeFont && { fontSize: 24 }]}>
                 {monthLabel}
               </Text>
 
@@ -883,18 +945,16 @@ export default function App() {
                   const isCurrentMonth = date.getMonth() === selectedMonth.getMonth();
                   const isToday = dateKey === todayKey;
 
-                  const dayEvents = events.filter((event) => {
-                    if (event.type === 'recipe') {
-                      const start = event.date;
-                      // Sin endDate = tratamiento crónico: no tiene fecha límite
-                      return dateKey >= start && (!event.endDate || dateKey <= event.endDate);
-                    }
-                    return event.date === dateKey;
-                  });
+                  const dayEvents = getEventsForDate(events, dateKey);
+                  const hiddenCount = dayEvents.length - MAX_EVENTS_PER_DAY_CELL;
 
                   return (
-                    <View
+                    <TouchableOpacity
                       key={`${dateKey}-${index}`}
+                      onPress={() => setDayDetailKey(dateKey)}
+                      disabled={dayEvents.length === 0}
+                      activeOpacity={0.6}
+                      accessibilityLabel={`${formatLongDate(dateKey)}, ${dayEvents.length} registros`}
                       style={[
                         styles.dayCell,
                         isDarkMode && { borderColor: '#334155' },
@@ -907,14 +967,14 @@ export default function App() {
                             styles.dayNumber,
                             isDarkMode && { color: '#F1F5F9' },
                             isToday && styles.todayNumberText,
-                            largeFont && { fontSize: 16 },
+                            largeFont && { fontSize: 18 },
                           ]}
                         >
                           {String(date.getDate())}
                         </Text>
                       </View>
 
-                      {dayEvents.map((event) => {
+                      {dayEvents.slice(0, MAX_EVENTS_PER_DAY_CELL).map((event) => {
                         const isAppointment = event.type === 'appointment';
                         return (
                           <TouchableOpacity
@@ -943,7 +1003,19 @@ export default function App() {
                           </TouchableOpacity>
                         );
                       })}
-                    </View>
+
+                      {hiddenCount > 0 && (
+                        <TouchableOpacity
+                          style={[styles.morePill, isDarkMode && { backgroundColor: '#334155' }]}
+                          onPress={() => setDayDetailKey(dateKey)}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={[styles.morePillText, isDarkMode && { color: '#E2E8F0' }]}>
+                            +{hiddenCount} más
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+                    </TouchableOpacity>
                   );
                 })}
               </View>
@@ -954,22 +1026,41 @@ export default function App() {
           <View style={[styles.agendaPanel, isDarkMode && { backgroundColor: '#1E293B' }]}>
             <View style={styles.sectionHeader}>
               <View style={[styles.dot, { backgroundColor: '#8A2BE2' }]} />
-              <Text style={[styles.sectionTitle, isDarkMode && { color: '#F1F5F9' }, largeFont && { fontSize: 22 }]}>
+              <Text style={[styles.sectionTitle, isDarkMode && { color: '#F1F5F9' }, largeFont && { fontSize: 24 }]}>
                 Próximas atenciones
               </Text>
             </View>
             {upcomingEvents.length === 0 && !loading && (
-              <Text style={[{ color: '#475569', fontSize: 15, fontWeight: '500' }, isDarkMode && { color: '#CBD5E1' }]}>
+              <Text style={[{ color: '#475569', fontSize: 18, fontWeight: '500' }, isDarkMode && { color: '#CBD5E1' }]}>
                 No hay registros próximos.
               </Text>
             )}
             {upcomingEvents.slice(0, 8).map((event) => {
               const isAppointment = event.type === 'appointment';
               return (
-                <TouchableOpacity
+                <Swipeable
                   key={event.id}
+                  friction={2}
+                  rightThreshold={40}
+                  overshootRight={false}
+                  containerStyle={styles.swipeContainer}
+                  renderRightActions={(_progress, _translation, swipeable: SwipeableMethods) => (
+                    <TouchableOpacity
+                      style={styles.swipeDeleteAction}
+                      onPress={() => confirmDelete(String(event.rawId), event.type, event.title, swipeable.close)}
+                      disabled={saving}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Eliminar ${event.title}`}
+                    >
+                      <Ionicons name="trash" size={24} color="#FFF" />
+                      <Text style={styles.swipeDeleteText}>Eliminar</Text>
+                    </TouchableOpacity>
+                  )}
+                >
+                <TouchableOpacity
                   style={[
                     styles.agendaItem,
+                    { marginBottom: 0 },
                     isAppointment && styles.appointmentAgendaCard,
                     isDarkMode && { backgroundColor: isAppointment ? '#451A03' : '#0F172A' },
                     isDarkMode && isAppointment && { borderColor: '#B45309' }
@@ -998,7 +1089,7 @@ export default function App() {
                             styles.agendaTitle,
                             isAppointment && { color: isDarkMode ? '#FDE68A' : '#92400E' },
                             isDarkMode && !isAppointment && { color: '#F1F5F9' },
-                            largeFont && { fontSize: 18 }
+                            largeFont && { fontSize: 20 }
                           ]}
                           numberOfLines={1}
                           ellipsizeMode="tail"
@@ -1013,7 +1104,7 @@ export default function App() {
                         style={styles.agendaPencilIcon}
                       />
                     </View>
-                    <Text style={[styles.agendaTime, isDarkMode && { color: '#CBD5E1' }, largeFont && { fontSize: 15 }]}>
+                    <Text style={[styles.agendaTime, isDarkMode && { color: '#CBD5E1' }, largeFont && { fontSize: 18 }]}>
                       {event.type === 'recipe' && event.colorName ? `Envase/Pastilla: ${event.colorName} • ` : ''}
                       {event.time} - {event.date} {event.endDate ? `al ${event.endDate}` : (event.type === 'recipe' ? '(tratamiento crónico)' : '')} ({event.patient})
                       {event.location ? ` • Lugar: ${event.location}` : ''}
@@ -1028,6 +1119,7 @@ export default function App() {
                     />
                   ) : null}
                 </TouchableOpacity>
+                </Swipeable>
               );
             })}
           </View>
@@ -1665,6 +1757,85 @@ export default function App() {
         </View>
       </Modal>
 
+      {/* Vista del día: todo lo que hay que tomar y las citas */}
+      <Modal
+        visible={dayDetailKey !== null}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setDayDetailKey(null)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalPanel, isDarkMode && { backgroundColor: '#1E293B' }]}>
+            <View style={styles.modalHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.modalTitle, isDarkMode && { color: '#F1F5F9' }, largeFont && { fontSize: 26 }]}>
+                  {dayDetailKey ? formatLongDate(dayDetailKey) : ''}
+                </Text>
+                <Text style={[styles.dayDetailSubtitle, isDarkMode && { color: '#CBD5E1' }]}>
+                  {dayDetailItems.length} {dayDetailItems.length === 1 ? 'actividad' : 'actividades'} en el día
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setDayDetailKey(null)} accessibilityLabel="Cerrar">
+                <Text style={[styles.closeButton, isDarkMode && { color: '#CBD5E1' }]}>×</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {dayDetailItems.map(({ key, time, event }) => {
+                const isAppointment = event.type === 'appointment';
+                return (
+                  <TouchableOpacity
+                    key={key}
+                    style={[
+                      styles.dayDetailItem,
+                      isAppointment && styles.appointmentAgendaCard,
+                      isDarkMode && { backgroundColor: isAppointment ? '#451A03' : '#0F172A', borderColor: isAppointment ? '#B45309' : '#334155' },
+                    ]}
+                    onPress={() => openEventFromDayDetail(event)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.dayDetailTime, isDarkMode && { color: '#38BDF8' }, largeFont && { fontSize: 22 }]}>
+                      {time}
+                    </Text>
+
+                    {isAppointment ? (
+                      <View style={styles.appointmentBadgeIcon}>
+                        <Ionicons name="calendar-sharp" size={18} color="#B45309" />
+                      </View>
+                    ) : (
+                      <View style={[styles.agendaBullet, { backgroundColor: event.color }]} />
+                    )}
+
+                    <View style={styles.agendaInfo}>
+                      <Text
+                        style={[
+                          styles.agendaTitle,
+                          isAppointment && { color: isDarkMode ? '#FDE68A' : '#92400E' },
+                          isDarkMode && !isAppointment && { color: '#F1F5F9' },
+                          largeFont && { fontSize: 20 },
+                        ]}
+                        numberOfLines={2}
+                      >
+                        {isAppointment ? event.title : event.medication || event.title}
+                      </Text>
+                      <Text style={[styles.agendaTime, isDarkMode && { color: '#CBD5E1' }, largeFont && { fontSize: 18 }]}>
+                        {isAppointment
+                          ? `${event.patient}${event.location ? ` • ${event.location}` : ''}`
+                          : `${event.dose ? `Tomar ${event.dose}` : 'Tomar dosis'}${event.colorName ? ` • ${event.colorName}` : ''} • ${event.patient}`}
+                      </Text>
+                    </View>
+
+                    {!isAppointment && event.photoUri ? (
+                      <Image source={{ uri: event.photoUri }} style={styles.dayDetailPhoto} resizeMode="cover" />
+                    ) : null}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
       {/* Mini-modal interactivo para seleccionar el día */}
       <Modal visible={pickerTarget !== null} transparent={true} animationType="fade">
         <View style={styles.pickerBackdrop}>
@@ -1760,7 +1931,7 @@ const styles = StyleSheet.create({
     borderColor: '#334155',
   },
   readOnlyUserText: {
-    fontSize: 15,
+    fontSize: 18,
     fontWeight: '700',
     color: '#102A43',
   },
@@ -1783,7 +1954,7 @@ const styles = StyleSheet.create({
     height: 45,
     marginRight: 15,
   },
-  title: { fontSize: 22, fontWeight: 'bold', color: '#102A43' },
+  title: { fontSize: 24, fontWeight: 'bold', color: '#102A43' },
   iconButton: { justifyContent: 'center', alignItems: 'center' },
   topbarActions: { flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
   primaryButton: {
@@ -1795,7 +1966,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  primaryButtonText: { color: '#FFF', fontWeight: '800', fontSize: 15 },
+  primaryButtonText: { color: '#FFF', fontWeight: '800', fontSize: 18 },
   appointmentButton: {
     backgroundColor: '#C85A17',
     flexDirection: 'row',
@@ -1805,7 +1976,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  appointmentButtonText: { color: '#FFF', fontWeight: '800', fontSize: 15 },
+  appointmentButtonText: { color: '#FFF', fontWeight: '800', fontSize: 18 },
   mainLayout: { flex: 1, paddingHorizontal: 15 },
   calendarPanel: { backgroundColor: '#FFF', borderRadius: 20, padding: 15, marginBottom: 15 },
   calendarActions: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
@@ -1822,12 +1993,12 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#7DD3FC',
   },
-  monthLabel: { fontSize: 18, fontWeight: 'bold', color: '#102A43' },
+  monthLabel: { fontSize: 20, fontWeight: 'bold', color: '#102A43' },
   calendarGrid: { flexDirection: 'row', flexWrap: 'wrap' },
   dayNumberContainer: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
     alignSelf: 'center',
@@ -1836,7 +2007,7 @@ const styles = StyleSheet.create({
   todayBadge: { backgroundColor: '#0EA5E9' },
   todayNumberText: { color: '#FFFFFF', fontWeight: 'bold' },
   weekdayCell: { width: '14.28%', alignItems: 'center', marginBottom: 10 },
-  weekdayText: { color: '#334155', fontSize: 13, fontWeight: '700' },
+  weekdayText: { color: '#334155', fontSize: 16, fontWeight: '700' },
   dayCell: {
     width: '14.28%',
     minHeight: 65,
@@ -1847,7 +2018,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
   },
   mutedDay: { opacity: 0.55 },
-  dayNumber: { fontSize: 14, color: '#102A43', marginBottom: 2 },
+  dayNumber: { fontSize: 16, color: '#102A43', marginBottom: 2 },
   eventPill: {
     borderRadius: 4,
     paddingHorizontal: 3,
@@ -1859,7 +2030,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   eventPillText: {
-    fontSize: 8,
+    fontSize: 10,
     color: '#FFF',
     fontWeight: '700',
     textAlign: 'center',
@@ -1873,10 +2044,31 @@ const styles = StyleSheet.create({
     color: '#78350F',
     fontWeight: '800',
   },
+  morePill: {
+    borderRadius: 4,
+    paddingVertical: 2,
+    width: '100%',
+    alignItems: 'center',
+    backgroundColor: '#E2E8F0',
+  },
+  morePillText: { fontSize: 11, fontWeight: '800', color: '#334155' },
+  dayDetailSubtitle: { fontSize: 16, color: '#475569', marginTop: 2 },
+  dayDetailItem: {
+    backgroundColor: '#F9FBFC',
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    borderRadius: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+  },
+  dayDetailTime: { fontSize: 18, fontWeight: '800', color: '#0369A1', width: 56 },
+  dayDetailPhoto: { width: 52, height: 52, borderRadius: 10, marginLeft: 10, backgroundColor: '#E2E8F0' },
   agendaPanel: { backgroundColor: '#FFF', borderRadius: 20, padding: 20, marginBottom: 40 },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 15 },
   dot: { width: 10, height: 10, borderRadius: 5, marginRight: 10 },
-  sectionTitle: { fontSize: 18, fontWeight: 'bold', color: '#102A43' },
+  sectionTitle: { fontSize: 20, fontWeight: 'bold', color: '#102A43' },
   agendaItem: {
     backgroundColor: '#F9FBFC',
     flexDirection: 'row',
@@ -1888,6 +2080,16 @@ const styles = StyleSheet.create({
     borderColor: '#F1F5F9',
     overflow: 'hidden',
   },
+  swipeContainer: { marginBottom: 10, borderRadius: 14 },
+  swipeDeleteAction: {
+    backgroundColor: '#DC2626',
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 88,
+    marginLeft: 8,
+    borderRadius: 14,
+  },
+  swipeDeleteText: { color: '#FFF', fontSize: 16, fontWeight: '700', marginTop: 4 },
   recipePhotoCardThumb: {
     width: 70,
     height: 70,
@@ -1918,7 +2120,7 @@ const styles = StyleSheet.create({
   },
   appointmentTagText: {
     color: '#FFF',
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: '900',
     letterSpacing: 0.5,
   },
@@ -1941,7 +2143,7 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   agendaTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
     color: '#102A43',
     flexShrink: 1,
@@ -1950,7 +2152,7 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     flexShrink: 0,
   },
-  agendaTime: { fontSize: 14, color: '#6B8E9B', marginTop: 2 },
+  agendaTime: { fontSize: 16, color: '#6B8E9B', marginTop: 2 },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   modalPanel: {
     backgroundColor: '#FFF',
@@ -1960,16 +2162,16 @@ const styles = StyleSheet.create({
     maxHeight: '85%',
   },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-  modalTitle: { fontSize: 20, fontWeight: 'bold', color: '#102A43' },
+  modalTitle: { fontSize: 22, fontWeight: 'bold', color: '#102A43' },
   closeButton: { fontSize: 30, color: '#6B8E9B' },
   formGroup: { marginBottom: 20 },
-  label: { fontSize: 14, fontWeight: '600', color: '#102A43', marginBottom: 5 },
-  input: { backgroundColor: '#F0F4F8', borderRadius: 10, padding: 15, fontSize: 16, marginBottom: 15, color: '#102A43' },
+  label: { fontSize: 16, fontWeight: '600', color: '#102A43', marginBottom: 5 },
+  input: { backgroundColor: '#F0F4F8', borderRadius: 10, padding: 15, fontSize: 18, marginBottom: 15, color: '#102A43' },
   darkInput: { backgroundColor: '#334155', color: '#F1F5F9' },
   row: { flexDirection: 'row', justifyContent: 'space-between' },
   halfWidth: { width: '48%' },
   submitButton: { backgroundColor: '#36B9CC', padding: 15, borderRadius: 10, alignItems: 'center', marginTop: 10 },
-  submitButtonText: { color: '#FFF', fontSize: 16, fontWeight: 'bold' },
+  submitButtonText: { color: '#FFF', fontSize: 18, fontWeight: 'bold' },
   deleteButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1981,7 +2183,7 @@ const styles = StyleSheet.create({
   },
   deleteButtonText: {
     color: '#EF4444',
-    fontSize: 15,
+    fontSize: 18,
     fontWeight: '700',
   },
   stepHeaderRow: {
@@ -1991,7 +2193,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   stepCounterText: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '700',
     color: '#64748B',
     textTransform: 'uppercase',
@@ -2015,7 +2217,7 @@ const styles = StyleSheet.create({
     width: 20,
   },
   stepTitleText: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: 'bold',
     color: '#102A43',
     marginBottom: 16,
@@ -2042,7 +2244,7 @@ const styles = StyleSheet.create({
   },
   backStepButtonText: {
     color: '#36B9CC',
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '700',
   },
   nextStepButton: {
@@ -2058,7 +2260,7 @@ const styles = StyleSheet.create({
   },
   nextStepButtonText: {
     color: '#FFF',
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '700',
   },
   chronicToggleCard: {
@@ -2080,12 +2282,12 @@ const styles = StyleSheet.create({
     borderColor: '#36B9CC',
   },
   chronicToggleTitle: {
-    fontSize: 15,
+    fontSize: 18,
     fontWeight: '700',
     color: '#102A43',
   },
   chronicToggleSubtitle: {
-    fontSize: 12,
+    fontSize: 14,
     color: '#64748B',
     marginTop: 2,
   },
@@ -2116,7 +2318,7 @@ const styles = StyleSheet.create({
     borderColor: '#36B9CC',
   },
   unitOptionText: {
-    fontSize: 13,
+    fontSize: 16,
     fontWeight: '600',
     color: '#102A43',
   },
@@ -2138,7 +2340,7 @@ const styles = StyleSheet.create({
     borderColor: '#334155',
   },
   photoPickerText: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '700',
     color: '#0F172A',
   },
@@ -2178,7 +2380,7 @@ const styles = StyleSheet.create({
     transform: [{ scale: 1.18 }],
   },
   miniSubLabel: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '600',
     color: '#64748B',
     marginBottom: 8,
@@ -2202,7 +2404,7 @@ const styles = StyleSheet.create({
     borderColor: '#38BDF8',
   },
   durationChipText: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '700',
     color: '#0284C7',
   },
@@ -2237,7 +2439,7 @@ const styles = StyleSheet.create({
     borderColor: '#FDBA74',
   },
   freqChipText: {
-    fontSize: 13,
+    fontSize: 16,
     fontWeight: '700',
     color: '#102A43',
   },
@@ -2256,7 +2458,7 @@ const styles = StyleSheet.create({
     borderColor: '#334155',
   },
   schedulePreviewText: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '600',
     color: '#0369A1',
     flex: 1,
@@ -2285,7 +2487,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   stepperSubtext: {
-    fontSize: 10,
+    fontSize: 14,
     fontWeight: '800',
     color: '#64748B',
     marginBottom: 5,
@@ -2312,14 +2514,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#334155',
   },
   stepperNumber: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '900',
     color: '#0F172A',
     minWidth: 32,
     textAlign: 'center',
   },
   timeSeparator: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: '900',
     color: '#94A3B8',
     marginHorizontal: 4,
@@ -2342,7 +2544,7 @@ const styles = StyleSheet.create({
     borderColor: '#0284C7',
   },
   quickHourChipText: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '700',
     color: '#0369A1',
   },
@@ -2363,7 +2565,7 @@ const styles = StyleSheet.create({
     borderColor: '#475569',
   },
   dateTriggerText: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '700',
     color: '#102A43',
   },
@@ -2392,7 +2594,7 @@ const styles = StyleSheet.create({
     marginBottom: 15,
   },
   pickerTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
     color: '#102A43',
   },
@@ -2411,7 +2613,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   pickerMonthText: {
-    fontSize: 15,
+    fontSize: 18,
     fontWeight: '700',
     color: '#102A43',
   },
@@ -2431,12 +2633,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#D97706',
   },
   pickerWeekdayText: {
-    fontSize: 11,
+    fontSize: 14,
     fontWeight: 'bold',
     color: '#94A3B8',
   },
   pickerDayNumber: {
-    fontSize: 13,
+    fontSize: 16,
     color: '#102A43',
   },
   floatingPromptContainer: {
@@ -2463,7 +2665,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#0369A1',
   },
   floatingPromptText: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '800',
     color: '#FFF',
   },

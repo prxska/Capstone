@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { Image, Platform } from 'react-native';
 import type { UpcomingAttention } from './UpcomingAttentionsWidget';
 
@@ -36,7 +37,8 @@ export async function syncUpcomingAttentionsWidget(events: UpcomingAttention[]) 
 
     await AsyncStorage.setItem(UPCOMING_ATTENTIONS_WIDGET_KEY, JSON.stringify(widgetEvents));
 
-    if (Platform.OS !== 'android') return;
+    // Expo Go no incluye el módulo nativo del widget
+    if (Platform.OS !== 'android' || Constants.executionEnvironment === ExecutionEnvironment.StoreClient) return;
 
     const [{ requestWidgetUpdate }, { UpcomingAttentionsWidget }] = await Promise.all([
       import('react-native-android-widget'),

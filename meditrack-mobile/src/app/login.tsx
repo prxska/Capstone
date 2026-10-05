@@ -343,12 +343,12 @@ const styles = StyleSheet.create({
   },
   badgeText: {
     color: '#0369A1',
-    fontSize: 11,
+    fontSize: 14,
     fontWeight: '700',
     letterSpacing: 0.5,
   },
-  title: { fontSize: 26, fontWeight: '800', color: '#0F172A', marginBottom: 4 },
-  subtitle: { fontSize: 14, color: '#64748B', textAlign: 'center', paddingHorizontal: 20 },
+  title: { fontSize: 28, fontWeight: '800', color: '#0F172A', marginBottom: 4 },
+  subtitle: { fontSize: 16, color: '#64748B', textAlign: 'center', paddingHorizontal: 20 },
   formCard: {
     backgroundColor: '#FFFFFF',
     padding: 24,
@@ -359,7 +359,7 @@ const styles = StyleSheet.create({
     })
   },
   label: {
-    fontSize: 13,
+    fontSize: 16,
     fontWeight: '600',
     color: '#334155',
     marginBottom: 6,
@@ -378,8 +378,8 @@ const styles = StyleSheet.create({
     minHeight: 52,
   },
   iconLeft: { marginRight: 10 },
-  input: { flex: 1, paddingVertical: 14, fontSize: 15, color: '#0F172A' },
-  inputWithEye: { flex: 1, paddingVertical: 14, fontSize: 15, color: '#0F172A' },
+  input: { flex: 1, paddingVertical: 14, fontSize: 18, color: '#0F172A' },
+  inputWithEye: { flex: 1, paddingVertical: 14, fontSize: 18, color: '#0F172A' },
   eyeTouchArea: { padding: 8, justifyContent: 'center', alignItems: 'center' },
   primaryButton: {
     backgroundColor: '#0EA5E9',
@@ -393,9 +393,9 @@ const styles = StyleSheet.create({
     })
   },
   primaryButtonRegister: { backgroundColor: '#0284C7' },
-  primaryButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  primaryButtonText: { color: '#FFFFFF', fontSize: 18, fontWeight: '700' },
   switchButton: { marginTop: 16, alignItems: 'center', paddingVertical: 6 },
-  switchTextRegular: { color: '#64748B', fontSize: 14 },
+  switchTextRegular: { color: '#64748B', fontSize: 16 },
   switchTextBold: { color: '#0284C7', fontWeight: '700' },
   dividerRow: {
     flexDirection: 'row',
@@ -404,7 +404,7 @@ const styles = StyleSheet.create({
     gap: 10
   },
   dividerLine: { flex: 1, height: 1, backgroundColor: '#E2E8F0' },
-  dividerText: { fontSize: 11, fontWeight: '700', color: '#94A3B8', letterSpacing: 0.5 },
+  dividerText: { fontSize: 14, fontWeight: '700', color: '#94A3B8', letterSpacing: 0.5 },
   googleButton: {
     flexDirection: 'row',
     justifyContent: 'center',
@@ -419,7 +419,7 @@ const styles = StyleSheet.create({
   },
   googleButtonText: {
     color: '#1F2937',
-    fontSize: 15,
+    fontSize: 18,
     fontWeight: '700',
   },
   guestButton: {
@@ -434,7 +434,7 @@ const styles = StyleSheet.create({
   },
   guestButtonText: {
     color: '#0369A1',
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '700',
   }
 });
