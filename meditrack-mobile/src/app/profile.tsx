@@ -1,26 +1,28 @@
-import React, { useEffect, useState } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
 import {
-  StyleSheet, View, Text, TouchableOpacity, Alert,
-  ScrollView, Switch, Platform, ActivityIndicator,
-  NativeSyntheticEvent, NativeScrollEvent
+  Alert,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text, TouchableOpacity,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { supabase } from '../lib/supabase';
-import { LocalAuth } from '../lib/storage';
 import { useTheme } from '../context/ThemeContext';
-import { useAlarm } from '../context/AlarmContext';
+import { LocalAuth } from '../lib/storage';
+import { supabase } from '../lib/supabase';
 
 export default function ProfileScreen() {
   const router = useRouter();
   const { isDarkMode, toggleTheme, largeFont, toggleFont } = useTheme();
-  const { triggerManualAlarm } = useAlarm();
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState('');
   const [isGuest, setIsGuest] = useState(false);
-  const [testingAlarm, setTestingAlarm] = useState(false);
-  const [countdown, setCountdown] = useState<number | null>(null);
   const [showScrollPrompt, setShowScrollPrompt] = useState(true);
 
   useEffect(() => {
@@ -49,32 +51,6 @@ export default function ProfileScreen() {
     } else if (offsetY <= 10 && !showScrollPrompt) {
       setShowScrollPrompt(true);
     }
-  };
-
-  const handleTestAlarm = () => {
-    setTestingAlarm(true);
-    setCountdown(3);
-
-    let current = 3;
-    const timer = setInterval(() => {
-      current -= 1;
-      if (current <= 0) {
-        clearInterval(timer);
-        setCountdown(null);
-        setTestingAlarm(false);
-
-        triggerManualAlarm({
-          id: 'test-1',
-          medication: 'Paracetamol 500mg',
-          dose: '1 comprimido',
-          color: '#38BDF8',
-          colorName: 'Azul',
-          time: '08:00',
-        });
-      } else {
-        setCountdown(current);
-      }
-    }, 1000);
   };
 
   const handleSignOut = async () => {
@@ -112,7 +88,7 @@ export default function ProfileScreen() {
         <Text style={[
           styles.headerTitle,
           isDarkMode && { color: '#F1F5F9' },
-          largeFont && { fontSize: 26 }
+          largeFont && { fontSize: 28 }
         ]}>
           Mi Perfil
         </Text>
@@ -140,14 +116,14 @@ export default function ProfileScreen() {
             <Text style={[
               styles.userName,
               isDarkMode && { color: '#F1F5F9' },
-              largeFont && { fontSize: 26 }
+              largeFont && { fontSize: 28 }
             ]}>
               {userName}
             </Text>
             <Text style={[
               styles.userEmail,
-              isDarkMode && { color: '#94A3B8' },
-              largeFont && { fontSize: 18 }
+              isDarkMode && { color: '#CBD5E1' },
+              largeFont && { fontSize: 20 }
             ]}>
               {userEmail}
             </Text>
@@ -155,80 +131,18 @@ export default function ProfileScreen() {
             {isGuest && (
               <View style={styles.guestWarningBox}>
                 <Ionicons name="warning" size={20} color="#D97706" />
-                <Text style={[styles.guestWarningText, largeFont && { fontSize: 16 }]}>
+                <Text style={[styles.guestWarningText, largeFont && { fontSize: 18 }]}>
                   Modo local activo: Sin respaldo en la nube.
                 </Text>
               </View>
             )}
           </View>
 
-          {/* Sección Diagnóstico y Prueba de Alarmas */}
-          <Text style={[
-            styles.sectionTitle,
-            isDarkMode && { color: '#94A3B8' },
-            largeFont && { fontSize: 16 }
-          ]}>
-            SISTEMA DE ALARMAS Y HARDWARE
-          </Text>
-
-          <View style={[styles.card, isDarkMode && styles.darkCard]}>
-            <View style={styles.testCardContent}>
-              <View style={styles.testIconTextRow}>
-                <View style={[styles.iconBox, { backgroundColor: isDarkMode ? '#334155' : '#FEF3C7' }]}>
-                  <Ionicons name="alarm" size={26} color={isDarkMode ? '#FDE68A' : '#D97706'} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[
-                    styles.optionTitle,
-                    isDarkMode && { color: '#F1F5F9' },
-                    largeFont && { fontSize: 20 }
-                  ]}>
-                    Prueba de Alarma In-App
-                  </Text>
-                  <Text style={[
-                    styles.optionSubtitle,
-                    isDarkMode && { color: '#94A3B8' },
-                    largeFont && { fontSize: 15 }
-                  ]}>
-                    Ejecuta vibración táctil y modal interactivo de confirmación.
-                  </Text>
-                </View>
-              </View>
-
-              <TouchableOpacity
-                style={[
-                  styles.testButton,
-                  testingAlarm && styles.testButtonDisabled,
-                  isDarkMode && styles.darkTestButton
-                ]}
-                onPress={handleTestAlarm}
-                disabled={testingAlarm}
-                activeOpacity={0.8}
-              >
-                {testingAlarm ? (
-                  <View style={styles.countdownRow}>
-                    <ActivityIndicator size="small" color="#FFF" />
-                    <Text style={[styles.testButtonText, largeFont && { fontSize: 18 }]}>
-                      Disparando en {countdown}s...
-                    </Text>
-                  </View>
-                ) : (
-                  <View style={styles.countdownRow}>
-                    <Ionicons name="play-circle-outline" size={22} color="#FFF" />
-                    <Text style={[styles.testButtonText, largeFont && { fontSize: 18 }]}>
-                      Probar alarma ahora (3s)
-                    </Text>
-                  </View>
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-
           {/* Sección Preferencias de Accesibilidad */}
           <Text style={[
             styles.sectionTitle,
-            isDarkMode && { color: '#94A3B8' },
-            largeFont && { fontSize: 16 }
+            isDarkMode && { color: '#CBD5E1' },
+            largeFont && { fontSize: 18 }
           ]}>
             PREFERENCIAS DE VISUALIZACIÓN
           </Text>
@@ -247,14 +161,14 @@ export default function ProfileScreen() {
                   <Text style={[
                     styles.optionTitle,
                     isDarkMode && { color: '#F1F5F9' },
-                    largeFont && { fontSize: 22 }
+                    largeFont && { fontSize: 24 }
                   ]}>
                     Modo Oscuro
                   </Text>
                   <Text style={[
                     styles.optionSubtitle,
-                    isDarkMode && { color: '#94A3B8' },
-                    largeFont && { fontSize: 16 }
+                    isDarkMode && { color: '#CBD5E1' },
+                    largeFont && { fontSize: 18 }
                   ]}>
                     {isDarkMode ? 'Activado (Fondo oscuro)' : 'Desactivado (Fondo claro)'}
                   </Text>
@@ -283,14 +197,14 @@ export default function ProfileScreen() {
                   <Text style={[
                     styles.optionTitle,
                     isDarkMode && { color: '#F1F5F9' },
-                    largeFont && { fontSize: 22 }
+                    largeFont && { fontSize: 24 }
                   ]}>
                     Texto Aumentado
                   </Text>
                   <Text style={[
                     styles.optionSubtitle,
-                    isDarkMode && { color: '#94A3B8' },
-                    largeFont && { fontSize: 16 }
+                    isDarkMode && { color: '#CBD5E1' },
+                    largeFont && { fontSize: 18 }
                   ]}>
                     {largeFont ? 'Letras grandes y legibles' : 'Tamaño normal'}
                   </Text>
@@ -314,7 +228,7 @@ export default function ProfileScreen() {
             <Ionicons name="log-out-outline" size={24} color="#EF4444" style={{ marginRight: 8 }} />
             <Text style={[
               styles.signOutText,
-              largeFont && { fontSize: 20 }
+              largeFont && { fontSize: 22 }
             ]}>
               {isGuest ? 'Salir del Modo Local' : 'Cerrar Sesión'}
             </Text>
@@ -368,7 +282,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#1E293B',
   },
   headerTitle: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: '800',
     color: '#102A43',
   },
@@ -404,13 +318,13 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   userName: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '800',
     color: '#0F172A',
     textAlign: 'center',
   },
   userEmail: {
-    fontSize: 14,
+    fontSize: 16,
     color: '#64748B',
     marginTop: 4,
     textAlign: 'center',
@@ -429,11 +343,11 @@ const styles = StyleSheet.create({
   },
   guestWarningText: {
     color: '#92400E',
-    fontSize: 13,
+    fontSize: 16,
     fontWeight: '700',
   },
   sectionTitle: {
-    fontSize: 13,
+    fontSize: 16,
     fontWeight: '800',
     color: '#64748B',
     marginBottom: 10,
@@ -451,40 +365,6 @@ const styles = StyleSheet.create({
       ios: { shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 8 },
       android: { elevation: 2 },
     }),
-  },
-  testCardContent: {
-    padding: 16,
-  },
-  testIconTextRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    marginBottom: 16,
-  },
-  testButton: {
-    backgroundColor: '#D97706',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  darkTestButton: {
-    backgroundColor: '#B45309',
-  },
-  testButtonDisabled: {
-    backgroundColor: '#78350F',
-    opacity: 0.8,
-  },
-  countdownRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  testButtonText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '800',
   },
   optionRow: {
     flexDirection: 'row',
@@ -508,12 +388,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   optionTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '700',
     color: '#0F172A',
   },
   optionSubtitle: {
-    fontSize: 13,
+    fontSize: 16,
     color: '#64748B',
     marginTop: 2,
   },
@@ -537,7 +417,7 @@ const styles = StyleSheet.create({
   },
   signOutText: {
     color: '#EF4444',
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '800',
   },
   floatingPromptContainer: {
@@ -565,7 +445,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#1E293B',
   },
   floatingPromptText: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '700',
     color: '#475569',
   },

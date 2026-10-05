@@ -52,7 +52,7 @@ Sigue estos pasos para levantar el entorno local del frontend móvil correspondi
 4. **Levantar el Servidor (Modo Túnel)**
    - Para evitar fallos de conectividad entre redes locales o cortafuegos, inicia el empaquetador Metro utilizando un túnel Ngrok:
      ```bash
-     npx expo start --tunnel
+     npx expo start --dev-client --tunnel
      ```
      *(Si la terminal solicita instalar `@expo/ngrok`, confirma presionando la tecla "y").*
 

@@ -1,16 +1,39 @@
-import React, { useEffect, useState } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { supabase } from '../lib/supabase';
-import { LocalAuth } from '../lib/storage';
+import { useEffect, useState } from 'react';
+import { AppState, Platform } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { ThemeProvider, useTheme } from '../context/ThemeContext';
-import { AlarmProvider } from '../context/AlarmContext';
+import { clearLegacyMedicationAlarms } from '../lib/legacyAlarms';
+import { LocalAuth } from '../lib/storage';
+import { supabase } from '../lib/supabase';
 
 function RootNavigation() {
   const router = useRouter();
   const segments = useSegments();
   const { isDarkMode } = useTheme();
   const [isAuthLoaded, setIsAuthLoaded] = useState(false);
+
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    void clearLegacyMedicationAlarms();
+
+    const updateTokenRefresh = (state: string | null) => {
+      if (state === 'active') {
+        void supabase.auth.startAutoRefresh();
+      } else {
+        void supabase.auth.stopAutoRefresh();
+      }
+    };
+
+    updateTokenRefresh(AppState.currentState);
+    const subscription = AppState.addEventListener('change', updateTokenRefresh);
+
+    return () => {
+      subscription.remove();
+      void supabase.auth.stopAutoRefresh();
+    };
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -71,10 +94,10 @@ function RootNavigation() {
 
 export default function RootLayout() {
   return (
-    <ThemeProvider>
-      <AlarmProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ThemeProvider>
         <RootNavigation />
-      </AlarmProvider>
-    </ThemeProvider>
+      </ThemeProvider>
+    </GestureHandlerRootView>
   );
 }

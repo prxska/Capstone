@@ -18,15 +18,7 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false,
-      "permissions": [
-        "SCHEDULE_EXACT_ALARM",
-        "USE_EXACT_ALARM",
-        "RECEIVE_BOOT_COMPLETED",
-        "WAKE_LOCK",
-        "VIBRATE",
-        "POST_NOTIFICATIONS"
-      ]
+      "predictiveBackGestureEnabled": false
     },
     "web": {
       "bundler": "metro",
@@ -48,6 +40,24 @@
           "icon": "./assets/images/icon.png",
           "color": "#0284C7",
           "sounds": []
+        }
+      ],
+      [
+        "react-native-android-widget",
+        {
+          "widgets": [
+            {
+              "name": "UpcomingAttentions",
+              "label": "Próximas atenciones",
+              "description": "Tus próximas citas y medicamentos",
+              "minWidth": "260dp",
+              "minHeight": "250dp",
+              "targetCellWidth": 4,
+              "targetCellHeight": 4,
+              "resizeMode": "horizontal|vertical",
+              "updatePeriodMillis": 1800000
+            }
+          ]
         }
       ]
     ],
