@@ -1,12 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
-import { useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Swipeable, { type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   Image,
   Modal,
   NativeScrollEvent,
@@ -20,7 +21,29 @@ import {
   View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { AttentionAlertModal } from '../components/AttentionAlertModal';
+import { OnboardingTutorial, markTutorialSeen, shouldShowTutorial } from '../components/OnboardingTutorial';
 import { useTheme } from '../context/ThemeContext';
+import { listenForAttentionAlerts, syncAttentionAlerts, type AttentionAlertData } from '../lib/attentionAlerts';
+import {
+  OWNER_PROFILE_ID,
+  describeMissingMigration,
+  fromDbProfileId,
+  getActiveProfileId,
+  getOwnerName,
+  listCareProfiles,
+  setActiveProfileId as saveActiveProfileId,
+  toDbProfileId,
+  type CareProfile,
+} from '../lib/careProfiles';
+import {
+  LOW_STOCK_DAYS,
+  calculateDoseTimes,
+  formatStock,
+  getIntervalHours,
+  getStockDaysLeft,
+  parseDoseAmount,
+} from '../lib/doseSchedule';
 import { getMedicationPhoto, uploadMedicationPhoto } from '../lib/medicationPhotos';
 import { LocalAuth } from '../lib/storage';
 import { supabase } from '../lib/supabase';
@@ -38,15 +61,32 @@ const DOSE_UNITS = [
   { id: 'mg', label: 'Gramos / mg', icon: 'fitness' },
 ];
 
+// Colores que se asignan automáticamente a cada receta nueva, en este orden.
+// Son distintos entre sí y del ámbar que usan las citas (#D97706).
 const PILL_COLORS = [
   { id: '#38BDF8', name: 'Azul' },
   { id: '#EF4444', name: 'Rojo' },
-  { id: '#F59E0B', name: 'Amarillo' },
   { id: '#10B981', name: 'Verde' },
   { id: '#8B5CF6', name: 'Morado' },
   { id: '#EC4899', name: 'Rosado' },
-  { id: '#94A3B8', name: 'Blanco / Gris' },
+  { id: '#14B8A6', name: 'Turquesa' },
+  { id: '#6366F1', name: 'Índigo' },
+  { id: '#65A30D', name: 'Lima' },
+  { id: '#D946EF', name: 'Fucsia' },
+  { id: '#64748B', name: 'Gris azulado' },
 ];
+
+// Primer color de la paleta que no use ninguna receta; si están todos ocupados, el menos usado.
+function pickNextRecipeColor(events: any[]) {
+  const usage = new Map<string, number>(PILL_COLORS.map((c) => [c.id.toUpperCase(), 0]));
+  events.forEach((event) => {
+    const key = String(event.color || '').toUpperCase();
+    if (event.type === 'recipe' && usage.has(key)) usage.set(key, (usage.get(key) || 0) + 1);
+  });
+  return PILL_COLORS.reduce((best, c) =>
+    (usage.get(c.id.toUpperCase()) || 0) < (usage.get(best.id.toUpperCase()) || 0) ? c : best
+  );
+}
 
 const FREQUENCY_OPTIONS = [
   { id: 8, label: 'Cada 8 hrs', perDay: 3 },
@@ -65,22 +105,6 @@ const monthNames = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
 ];
-
-function calculateDoseTimes(startTime: string, intervalHours: number): string[] {
-  const [hourStr, minuteStr] = (startTime || '08:00').split(':');
-  let startHour = parseInt(hourStr, 10);
-  const startMin = minuteStr || '00';
-  if (isNaN(startHour)) startHour = 8;
-
-  const times: string[] = [];
-  const dosesPerDay = Math.floor(24 / intervalHours);
-
-  for (let i = 0; i < dosesPerDay; i++) {
-    const currentHour = (startHour + i * intervalHours) % 24;
-    times.push(`${String(currentHour).padStart(2, '0')}:${startMin}`);
-  }
-  return times;
-}
 
 function addDaysToDate(baseDateStr: string, days: number): string {
   const base = new Date(baseDateStr + 'T00:00:00');
@@ -105,6 +129,8 @@ const initialRecipeForm = {
   photoUri: '',
   photoStoragePath: '',
   isChronic: false,
+  // Cantidad disponible (opcional); vacío = sin control de stock
+  stock: '',
 };
 
 const initialAppointmentForm = {
@@ -152,16 +178,16 @@ function getEventsForDate(events: any[], dateKey: string) {
   });
 }
 
-// "Cada 8 hrs", "Una al día (24 hrs)" o una frecuencia personalizada "Cada N hrs"
-function getIntervalHours(frequency: string): number {
-  const match = /(\d+)\s*hrs/.exec(frequency || '');
-  const hours = match ? parseInt(match[1], 10) : 24;
-  return hours > 0 ? hours : 24;
-}
-
 function formatLongDate(dateKey: string) {
   const date = new Date(dateKey + 'T00:00:00');
   return `${fullWeekDays[date.getDay()]} ${date.getDate()} de ${monthNames[date.getMonth()].toLowerCase()}`;
+}
+
+function formatFriendlyDate(dateKey: string, todayKey: string) {
+  if (!dateKey) return '';
+  if (dateKey === todayKey) return 'Hoy';
+  if (dateKey === addDaysToDate(todayKey, 1)) return 'Mañana';
+  return formatLongDate(dateKey);
 }
 
 function buildCalendarDays(year: number, month: number) {
@@ -189,9 +215,15 @@ export default function App() {
   const [saving, setSaving] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState(new Date());
   const [currentUserName, setCurrentUserName] = useState('');
+  const [profiles, setProfiles] = useState<CareProfile[]>([]);
+  // Nombre elegido por el titular; '' = sin nombre (se muestra "Yo")
+  const [ownerName, setOwnerNameState] = useState('');
+  const [activeProfileId, setActiveProfileId] = useState(OWNER_PROFILE_ID);
+  // Perfil al que pertenece el registro que se está creando o editando
+  const [formProfileId, setFormProfileId] = useState(OWNER_PROFILE_ID);
   const [isGuest, setIsGuest] = useState(false);
 
-  const [selectedColor, setSelectedColor] = useState(PILL_COLORS[0]);
+  const [editingColor, setEditingColor] = useState<{ id: string; name: string } | null>(null);
   const [doseAmount, setDoseAmount] = useState('1');
   const [doseUnit, setDoseUnit] = useState<'comp' | 'ml' | 'mg' | 'gotas'>('comp');
 
@@ -205,6 +237,13 @@ export default function App() {
   const goToPrevRecipeStep = () => setRecipeStep((s) => Math.max(s - 1, 0));
 
   const [dayDetailKey, setDayDetailKey] = useState<string | null>(null);
+  const [activeAlert, setActiveAlert] = useState<AttentionAlertData | null>(null);
+  const [showTutorial, setShowTutorial] = useState(false);
+  // 'guest' o el id del usuario: el tutorial se muestra una vez por cuenta
+  const tutorialKeyRef = useRef('guest');
+  const eventsRef = useRef<any[]>([]);
+  // false si la última carga falló: en ese caso no se tocan las alertas ya programadas
+  const alertsInSyncRef = useRef(false);
   const [pickerTarget, setPickerTarget] = useState<'startDate' | 'endDate' | 'appDate' | null>(null);
   const [pickerMonth, setPickerMonth] = useState(new Date());
 
@@ -212,28 +251,26 @@ export default function App() {
 
   const todayKey = useMemo(() => getChileTodayString(), []);
 
-  useEffect(() => {
-    async function loadUser() {
-      const guest = await LocalAuth.isGuestMode();
-      setIsGuest(guest);
+  const loadUser = async () => {
+    const guest = await LocalAuth.isGuestMode();
+    setIsGuest(guest);
+    const savedOwnerName = await getOwnerName();
+    setOwnerNameState(savedOwnerName);
 
-      if (guest) {
-        const name = 'Usuario Local';
-        setCurrentUserName(name);
-        setRecipeForm((prev) => ({ ...prev, patient: name }));
-        setAppointmentForm((prev) => ({ ...prev, patient: name }));
-      } else {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          const name = user.user_metadata?.full_name || user.email?.split('@')[0] || 'Paciente';
-          setCurrentUserName(name);
-          setRecipeForm((prev) => ({ ...prev, patient: name }));
-          setAppointmentForm((prev) => ({ ...prev, patient: name }));
-        }
-      }
+    let name = savedOwnerName || 'Usuario Local';
+    let tutorialKey = 'guest';
+    if (!guest) {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      name = savedOwnerName || session.user.email?.split('@')[0] || 'Paciente';
+      tutorialKey = session.user.id;
     }
-    loadUser();
-  }, []);
+    tutorialKeyRef.current = tutorialKey;
+    if (await shouldShowTutorial(tutorialKey)) setShowTutorial(true);
+    setCurrentUserName(name);
+    setRecipeForm((prev) => ({ ...prev, patient: name }));
+    setAppointmentForm((prev) => ({ ...prev, patient: name }));
+  };
 
   const monthLabel = `${monthNames[selectedMonth.getMonth()]} De ${selectedMonth.getFullYear()}`;
   const pickerMonthLabel = `${monthNames[pickerMonth.getMonth()]} ${pickerMonth.getFullYear()}`;
@@ -248,18 +285,58 @@ export default function App() {
     [pickerMonth]
   );
 
+  const visibleEvents = useMemo(
+    () => events.filter((event) => event.profileId === activeProfileId),
+    [events, activeProfileId]
+  );
+
+  // Medicamentos vigentes cuyo stock alcanza para LOW_STOCK_DAYS días o menos
+  const lowStockRecipes = useMemo(
+    () =>
+      visibleEvents.filter((event) => {
+        if (event.type !== 'recipe' || (event.endDate && event.endDate < todayKey)) return false;
+        const daysLeft = getStockDaysLeft(event);
+        return daysLeft != null && daysLeft <= LOW_STOCK_DAYS;
+      }),
+    [visibleEvents, todayKey]
+  );
+
+  const profileDisplayName = (profileId: string) => {
+    if (profileId === OWNER_PROFILE_ID) {
+      return isGuest ? ownerName || 'Modo Local (Sin cuenta)' : currentUserName || 'Cargando...';
+    }
+    return profiles.find((p) => p.id === profileId)?.name || 'Perfil';
+  };
+
+  // Nombre que se guarda como paciente del registro
+  const patientNameFor = (profileId: string) => {
+    if (profileId === OWNER_PROFILE_ID) return isGuest ? ownerName || 'Usuario Local' : currentUserName;
+    return profiles.find((p) => p.id === profileId)?.name || currentUserName;
+  };
+
+  const selectProfile = (profileId: string) => {
+    setActiveProfileId(profileId);
+    void saveActiveProfileId(profileId);
+  };
+
+  const loadProfiles = async () => {
+    const [list, savedActive] = await Promise.all([listCareProfiles(), getActiveProfileId()]);
+    setProfiles(list);
+    setActiveProfileId(list.some((p) => p.id === savedActive) ? savedActive : OWNER_PROFILE_ID);
+  };
+
   const upcomingEvents = useMemo(() => {
-    return [...events].sort((a, b) => {
+    return [...visibleEvents].sort((a, b) => {
       const dateA = new Date(`${a.date}T${a.time || '00:00'}:00`);
       const dateB = new Date(`${b.date}T${b.time || '00:00'}:00`);
       return dateA.getTime() - dateB.getTime();
     });
-  }, [events]);
+  }, [visibleEvents]);
 
   // Cada toma del día (una por horario) y cada cita, ordenadas por hora
   const dayDetailItems = useMemo(() => {
     if (!dayDetailKey) return [];
-    const items = getEventsForDate(events, dayDetailKey).flatMap((event) => {
+    const items = getEventsForDate(visibleEvents, dayDetailKey).flatMap((event) => {
       if (event.type === 'recipe') {
         return calculateDoseTimes(event.time, getIntervalHours(event.frequency)).map((time) => ({
           key: `${event.id}-${time}`,
@@ -270,7 +347,7 @@ export default function App() {
       return [{ key: event.id, time: event.time || '00:00', event }];
     });
     return items.sort((a, b) => a.time.localeCompare(b.time));
-  }, [events, dayDetailKey]);
+  }, [visibleEvents, dayDetailKey]);
 
   const openEventFromDayDetail = (event: any) => {
     setDayDetailKey(null);
@@ -309,6 +386,8 @@ export default function App() {
           notes: r.notes || '',
           photoUri: r.photoUri || r.photo_url || '',
           photoStoragePath: r.photoStoragePath || '',
+          profileId: fromDbProfileId(r.profile_id),
+          stock: r.stock == null ? null : Number(r.stock),
           type: 'recipe' as const,
         }));
 
@@ -325,26 +404,43 @@ export default function App() {
           color: '#D97706' as const,
           colorName: 'Ámbar',
           dose: '',
+          profileId: fromDbProfileId(a.profile_id),
           type: 'appointment' as const,
         }));
 
         const nextEvents = [...parsedRecipes, ...parsedAppointments];
         setEvents(nextEvents);
         await syncUpcomingAttentionsWidget(nextEvents);
+        void syncAttentionAlerts(nextEvents);
+        alertsInSyncRef.current = true;
       } else {
         // Carga desde Supabase
         const { data: { session }, error: sessionError } = await supabase.auth.getSession();
         if (sessionError || !session) {
           setEvents([]);
           await syncUpcomingAttentionsWidget([]);
+          void syncAttentionAlerts([]);
           return;
         }
         const user = session.user;
 
-        const [{ data: recipes, error: rError }, { data: appointments, error: aError }] = await Promise.all([
+        const fetchUserRecords = () => Promise.all([
           supabase.from('recipes').select('*').eq('user_id', user.id),
           supabase.from('appointments').select('*').eq('user_id', user.id)
         ]);
+
+        let [recipesResult, appointmentsResult] = await fetchUserRecords();
+
+        // Justo después de iniciar sesión o renovar el token, la base de datos puede rechazarlo
+        // por unos segundos ("JWT issued at future") si su reloj va levemente atrás del de Auth.
+        const isClockSkew = (e: any) => /issued at future/i.test(e?.message || '');
+        if (isClockSkew(recipesResult.error) || isClockSkew(appointmentsResult.error)) {
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          [recipesResult, appointmentsResult] = await fetchUserRecords();
+        }
+
+        const { data: recipes, error: rError } = recipesResult;
+        const { data: appointments, error: aError } = appointmentsResult;
 
         if (rError) console.error('Error al traer recetas:', rError.message);
         if (aError) console.error('Error al traer citas:', aError.message);
@@ -372,6 +468,8 @@ export default function App() {
             notes: r.notes || '',
             photoUri: photo.photoUri,
             photoStoragePath: photo.photoStoragePath,
+            profileId: fromDbProfileId(r.profile_id),
+            stock: r.stock == null ? null : Number(r.stock),
             type: 'recipe' as const,
           };
         }));
@@ -389,22 +487,69 @@ export default function App() {
           color: '#D97706' as const,
           colorName: 'Ámbar',
           dose: '',
+          profileId: fromDbProfileId(a.profile_id),
           type: 'appointment' as const,
         }));
 
         const nextEvents = [...parsedRecipes, ...parsedAppointments];
         setEvents(nextEvents);
         await syncUpcomingAttentionsWidget(nextEvents);
+        alertsInSyncRef.current = !rError && !aError;
+        if (alertsInSyncRef.current) void syncAttentionAlerts(nextEvents);
       }
     } catch (err: any) {
+      alertsInSyncRef.current = false;
       Alert.alert('Error', 'No se pudieron cargar los datos.');
     } finally {
       setLoading(false);
     }
   }
 
+  useFocusEffect(
+    useCallback(() => {
+      void loadUser();
+      void loadProfiles();
+      fetchEvents();
+    }, [])
+  );
+
   useEffect(() => {
-    fetchEvents();
+    eventsRef.current = events;
+  }, [events]);
+
+  const handleDoseTaken = async (alert: AttentionAlertData) => {
+    setActiveAlert(null);
+    const recipe = eventsRef.current.find((e) => e.id === alert.eventId);
+    if (!recipe || recipe.stock == null) return;
+
+    const nextStock = Math.max(0, recipe.stock - parseDoseAmount(recipe.dose));
+    try {
+      if (await LocalAuth.isGuestMode()) {
+        const raw = await AsyncStorage.getItem(LOCAL_RECIPES_KEY);
+        const list = raw ? JSON.parse(raw) : [];
+        await AsyncStorage.setItem(
+          LOCAL_RECIPES_KEY,
+          JSON.stringify(list.map((r: any) => (String(r.id) === String(recipe.rawId) ? { ...r, stock: nextStock } : r)))
+        );
+      } else {
+        const { error } = await supabase.from('recipes').update({ stock: nextStock }).eq('id', recipe.rawId);
+        if (error) throw error;
+      }
+      setEvents((prev) => prev.map((e) => (e.id === recipe.id ? { ...e, stock: nextStock } : e)));
+    } catch (err: any) {
+      Alert.alert('No se pudo actualizar el stock', describeMissingMigration(String(err?.message || '')));
+    }
+  };
+
+  // Ventana emergente cuando suena una alerta o se toca su notificación
+  useEffect(() => listenForAttentionAlerts(setActiveAlert), []);
+
+  // Las alertas se programan para los próximos días: al volver a la app se renuevan
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active' && alertsInSyncRef.current) void syncAttentionAlerts(eventsRef.current);
+    });
+    return () => subscription.remove();
   }, []);
 
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -510,6 +655,7 @@ export default function App() {
 
   const handleEditEvent = (event: any) => {
     setEditingId(event.rawId);
+    setFormProfileId(event.profileId || OWNER_PROFILE_ID);
     setFormType(event.type);
     setRecipeStep(0);
 
@@ -521,8 +667,7 @@ export default function App() {
       setDoseAmount(amount);
       setDoseUnit(unit);
 
-      const matchedColor = PILL_COLORS.find((c) => c.id === event.color) || PILL_COLORS[0];
-      setSelectedColor(matchedColor);
+      setEditingColor(event.color ? { id: event.color, name: event.colorName || '' } : null);
 
       const matchedFreq = FREQUENCY_OPTIONS.find((f) => f.label === event.frequency);
       if (matchedFreq) {
@@ -537,6 +682,7 @@ export default function App() {
       }
 
       setRecipeForm({
+        stock: event.stock == null ? '' : String(event.stock).replace('.', ','),
         patient: event.patient,
         medication: event.medication || '',
         dose: event.dose || '',
@@ -662,6 +808,9 @@ export default function App() {
         activeUserId = session.user.id;
       }
 
+      const profileDbId = toDbProfileId(formProfileId);
+      const patientName = patientNameFor(formProfileId);
+
       if (formType === 'recipe') {
         if (!recipeForm.medication) {
           Alert.alert('Incompleto', 'Indica el nombre del medicamento.');
@@ -670,6 +819,23 @@ export default function App() {
         }
 
         const fullDose = `${doseAmount.trim()} ${doseUnit}`;
+        const stockText = recipeForm.stock.trim().replace(',', '.');
+        const stockValue = stockText === '' ? null : Number(stockText);
+        if (stockValue != null && (!Number.isFinite(stockValue) || stockValue < 0)) {
+          Alert.alert('Cantidad no válida', 'Escribe cuántas tienes como un número, por ejemplo 30.');
+          setSaving(false);
+          return;
+        }
+        // profile_id y stock solo se envían si se usan, para que guardar funcione aunque falte la migración
+        const editingHadStock = !!editingId && events.some(
+          (e) => e.type === 'recipe' && String(e.rawId) === String(editingId) && e.stock != null
+        );
+        const optionalRecipeColumns = {
+          ...(profileDbId ? { profile_id: profileDbId } : {}),
+          ...(stockValue != null || editingHadStock ? { stock: stockValue } : {}),
+        };
+        // Al editar se conserva el color; una receta nueva recibe uno que no use otra receta
+        const recipeColor = (editingId && editingColor) || pickNextRecipeColor(events);
         if (guest) {
           // Guardar directamente en AsyncStorage
           const raw = await AsyncStorage.getItem(LOCAL_RECIPES_KEY);
@@ -678,11 +844,13 @@ export default function App() {
 
           const newRecipe = {
             id: recipeId,
-            patient: 'Usuario Local',
+            patient: patientName,
+            profile_id: profileDbId,
+            stock: stockValue,
             medication: recipeForm.medication,
             dose: fullDose,
-            color: selectedColor.id,
-            color_name: selectedColor.name,
+            color: recipeColor.id,
+            color_name: recipeColor.name,
             frequency: recipeForm.frequency,
             start_date: recipeForm.startDate,
             end_date: recipeForm.isChronic ? null : recipeForm.endDate,
@@ -702,11 +870,12 @@ export default function App() {
           // Guardar en Supabase
           const payload = {
             user_id: activeUserId,
-            patient: currentUserName,
+            patient: patientName,
+            ...optionalRecipeColumns,
             medication: recipeForm.medication,
             dose: fullDose,
-            color: selectedColor.id,
-            color_name: selectedColor.name,
+            color: recipeColor.id,
+            color_name: recipeColor.name,
             frequency: recipeForm.frequency,
             start_date: recipeForm.startDate,
             end_date: recipeForm.isChronic ? null : recipeForm.endDate,
@@ -763,7 +932,7 @@ export default function App() {
           isChronic: false,
         });
         setDoseAmount('1');
-        setSelectedColor(PILL_COLORS[0]);
+        setEditingColor(null);
         setSelectedInterval(8);
         setIsCustomFrequency(false);
       } else {
@@ -780,7 +949,8 @@ export default function App() {
 
           const newAppt = {
             id: editingId || `app_${Date.now()}`,
-            patient: 'Usuario Local',
+            patient: patientName,
+            profile_id: profileDbId,
             doctor: appointmentForm.doctor,
             specialty: appointmentForm.specialty,
             date: appointmentForm.date,
@@ -799,7 +969,8 @@ export default function App() {
           // Guardar cita en Supabase
           const payload = {
             user_id: activeUserId,
-            patient: currentUserName,
+            patient: patientName,
+            ...(profileDbId ? { profile_id: profileDbId } : {}),
             doctor: appointmentForm.doctor,
             specialty: appointmentForm.specialty,
             date: appointmentForm.date,
@@ -823,7 +994,7 @@ export default function App() {
       setEditingId(null);
       await fetchEvents();
     } catch (err: any) {
-      const message = String(err?.message || 'No se pudo guardar el registro.');
+      const message = describeMissingMigration(String(err?.message || 'No se pudo guardar el registro.'));
       if (/jwt expired|token expired/i.test(message)) {
         Alert.alert('Sesión expirada', 'Vuelve a iniciar sesión para guardar la receta.');
       } else {
@@ -840,6 +1011,7 @@ export default function App() {
 
   const openModal = (type: 'recipe' | 'appointment') => {
     setEditingId(null);
+    setFormProfileId(activeProfileId);
     setFormType(type);
     setRecipeStep(0);
     if (type === 'recipe') {
@@ -905,6 +1077,79 @@ export default function App() {
           onScroll={handleScroll}
           scrollEventThrottle={16}
         >
+          {/* Selector de perfil: cada uno tiene sus propios medicamentos y citas */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.profileChipsRow}
+          >
+            {[{ id: OWNER_PROFILE_ID, name: ownerName || 'Yo' }, ...profiles].map((profile) => {
+              const isActive = profile.id === activeProfileId;
+              return (
+                <TouchableOpacity
+                  key={profile.id}
+                  style={[
+                    styles.profileChip,
+                    isDarkMode && { backgroundColor: '#1E293B', borderColor: '#334155' },
+                    isActive && styles.profileChipActive,
+                  ]}
+                  onPress={() => selectProfile(profile.id)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isActive }}
+                  accessibilityLabel={`Ver perfil ${profile.name}`}
+                >
+                  <Ionicons
+                    name={profile.id === OWNER_PROFILE_ID ? 'person' : 'people'}
+                    size={20}
+                    color={isActive ? '#FFF' : isDarkMode ? '#7DD3FC' : '#0369A1'}
+                  />
+                  <Text
+                    style={[
+                      styles.profileChipText,
+                      isDarkMode && { color: '#E2E8F0' },
+                      isActive && { color: '#FFF' },
+                      largeFont && { fontSize: 22 },
+                    ]}
+                  >
+                    {profile.name}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+            <TouchableOpacity
+              style={[styles.profileChip, styles.profileChipAdd, isDarkMode && { backgroundColor: '#1E293B' }]}
+              onPress={() => router.push('/profile' as any)}
+              accessibilityLabel="Agregar o administrar perfiles"
+            >
+              <Ionicons name="add" size={22} color={isDarkMode ? '#7DD3FC' : '#0369A1'} />
+              <Text style={[styles.profileChipText, isDarkMode && { color: '#E2E8F0' }, largeFont && { fontSize: 22 }]}>
+                Perfil
+              </Text>
+            </TouchableOpacity>
+          </ScrollView>
+
+          {lowStockRecipes.map((recipe) => (
+            <TouchableOpacity
+              key={`stock-${recipe.id}`}
+              style={styles.lowStockBanner}
+              onPress={() => handleEditEvent(recipe)}
+              accessibilityLabel={`Quedan pocas de ${recipe.medication}. Toca para actualizar la cantidad`}
+            >
+              <Ionicons name="warning" size={26} color="#B45309" />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.lowStockTitle, largeFont && { fontSize: 22 }]}>
+                  {recipe.stock === 0 ? `Se acabó ${recipe.medication}` : `Quedan pocas: ${recipe.medication}`}
+                </Text>
+                <Text style={[styles.lowStockText, largeFont && { fontSize: 20 }]}>
+                  {recipe.stock === 0
+                    ? 'Compra más y actualiza la cantidad'
+                    : `Te quedan ${formatStock(recipe.stock, recipe.dose)}. Compra más pronto.`}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={22} color="#B45309" />
+            </TouchableOpacity>
+          ))}
+
           <View style={[styles.calendarPanel, isDarkMode && { backgroundColor: '#1E293B' }]}>
             <View style={styles.calendarActions}>
               <TouchableOpacity
@@ -945,7 +1190,7 @@ export default function App() {
                   const isCurrentMonth = date.getMonth() === selectedMonth.getMonth();
                   const isToday = dateKey === todayKey;
 
-                  const dayEvents = getEventsForDate(events, dateKey);
+                  const dayEvents = getEventsForDate(visibleEvents, dateKey);
                   const hiddenCount = dayEvents.length - MAX_EVENTS_PER_DAY_CELL;
 
                   return (
@@ -1069,55 +1314,52 @@ export default function App() {
                   activeOpacity={0.7}
                 >
                   {isAppointment ? (
-                    <View style={styles.appointmentBadgeIcon}>
-                      <Ionicons name="calendar-sharp" size={18} color="#B45309" />
+                    <View style={[styles.appointmentBadgeIcon, styles.agendaIconLarge]}>
+                      <Ionicons name="calendar-sharp" size={22} color="#B45309" />
                     </View>
                   ) : (
-                    <View style={[styles.agendaBullet, { backgroundColor: event.color }]} />
+                    <View style={[styles.agendaBullet, styles.agendaBulletLarge, { backgroundColor: event.color }]} />
                   )}
 
                   <View style={styles.agendaInfo}>
-                    <View style={styles.agendaTitleRow}>
-                      <View style={styles.agendaTitleLeft}>
-                        {isAppointment && (
-                          <View style={styles.appointmentTag}>
-                            <Text style={styles.appointmentTagText}>CITA MÉDICA</Text>
-                          </View>
-                        )}
-                        <Text
-                          style={[
-                            styles.agendaTitle,
-                            isAppointment && { color: isDarkMode ? '#FDE68A' : '#92400E' },
-                            isDarkMode && !isAppointment && { color: '#F1F5F9' },
-                            largeFont && { fontSize: 20 }
-                          ]}
-                          numberOfLines={1}
-                          ellipsizeMode="tail"
-                        >
-                          {event.title}
+                    <Text
+                      style={[
+                        styles.agendaTitle,
+                        isAppointment && { color: isDarkMode ? '#FDE68A' : '#92400E' },
+                        isDarkMode && !isAppointment && { color: '#F1F5F9' },
+                        largeFont && { fontSize: 24 }
+                      ]}
+                      numberOfLines={2}
+                      ellipsizeMode="tail"
+                    >
+                      {event.title}
+                    </Text>
+                    <View style={styles.agendaWhenRow}>
+                      <View style={styles.agendaWhenItem}>
+                        <Ionicons name="time-outline" size={largeFont ? 22 : 20} color={isDarkMode ? '#CBD5E1' : '#334155'} />
+                        <Text style={[styles.agendaWhenText, isDarkMode && { color: '#E2E8F0' }, largeFont && { fontSize: 22 }]}>
+                          {event.time}
                         </Text>
                       </View>
-                      <Ionicons
-                        name="pencil-sharp"
-                        size={16}
-                        color={isAppointment ? '#D97706' : isDarkMode ? '#38BDF8' : '#36B9CC'}
-                        style={styles.agendaPencilIcon}
-                      />
+                      <View style={styles.agendaWhenItem}>
+                        <Ionicons name="calendar-outline" size={largeFont ? 22 : 20} color={isDarkMode ? '#CBD5E1' : '#334155'} />
+                        <Text style={[styles.agendaWhenText, isDarkMode && { color: '#E2E8F0' }, largeFont && { fontSize: 22 }]}>
+                          {formatFriendlyDate(event.date, todayKey)}
+                        </Text>
+                      </View>
                     </View>
-                    <Text style={[styles.agendaTime, isDarkMode && { color: '#CBD5E1' }, largeFont && { fontSize: 18 }]}>
-                      {event.type === 'recipe' && event.colorName ? `Envase/Pastilla: ${event.colorName} • ` : ''}
-                      {event.time} - {event.date} {event.endDate ? `al ${event.endDate}` : (event.type === 'recipe' ? '(tratamiento crónico)' : '')} ({event.patient})
-                      {event.location ? ` • Lugar: ${event.location}` : ''}
-                    </Text>
                   </View>
 
-                  {event.type === 'recipe' && event.photoUri ? (
-                    <Image
-                      source={{ uri: event.photoUri }}
-                      style={styles.recipePhotoCardThumb}
-                      resizeMode="cover"
-                    />
-                  ) : null}
+                  <TouchableOpacity
+                    style={[styles.cardDeleteButton, isDarkMode && { backgroundColor: '#450A0A' }]}
+                    onPress={() => confirmDelete(String(event.rawId), event.type, event.title)}
+                    disabled={saving}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Eliminar ${event.title}`}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Ionicons name="trash" size={24} color={isDarkMode ? '#FCA5A5' : '#DC2626'} />
+                  </TouchableOpacity>
                 </TouchableOpacity>
                 </Swipeable>
               );
@@ -1203,7 +1445,7 @@ export default function App() {
                               style={{ marginRight: 8 }}
                             />
                             <Text style={[styles.readOnlyUserText, isDarkMode && styles.darkText]}>
-                              {isGuest ? 'Modo Local (Sin cuenta)' : (currentUserName || 'Cargando...')}
+                              {profileDisplayName(formProfileId)}
                             </Text>
                           </View>
 
@@ -1269,26 +1511,6 @@ export default function App() {
                           ) : null}
 
                           <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>
-                            Color pastilla/envase: <Text style={{ color: selectedColor.id, fontWeight: 'bold' }}>{selectedColor.name}</Text>
-                          </Text>
-                          <View style={styles.colorPaletteRow}>
-                            {PILL_COLORS.map((c) => {
-                              const isChosen = selectedColor.id === c.id;
-                              return (
-                                <TouchableOpacity
-                                  key={c.id}
-                                  style={[
-                                    styles.colorCircle,
-                                    { backgroundColor: c.id },
-                                    isChosen && styles.colorCircleActive
-                                  ]}
-                                  onPress={() => setSelectedColor(c)}
-                                />
-                              );
-                            })}
-                          </View>
-
-                          <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>
                             Cantidad ({doseUnit})
                           </Text>
                           <TextInput
@@ -1298,6 +1520,18 @@ export default function App() {
                             keyboardType="numeric"
                             value={doseAmount}
                             onChangeText={setDoseAmount}
+                          />
+
+                          <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>
+                            ¿Cuántas tienes? (opcional)
+                          </Text>
+                          <TextInput
+                            style={[styles.input, isDarkMode && styles.darkInput]}
+                            placeholder="Ej. 30 — te avisaremos cuando queden pocas"
+                            placeholderTextColor="#94A3B8"
+                            keyboardType="numeric"
+                            value={recipeForm.stock}
+                            onChangeText={(value) => handleRecipeChange('stock', value)}
                           />
                         </>
                       )}
@@ -1616,7 +1850,7 @@ export default function App() {
                           style={{ marginRight: 8 }}
                         />
                         <Text style={[styles.readOnlyUserText, isDarkMode && styles.darkText]}>
-                          {isGuest ? 'Modo Local (Sin cuenta)' : (currentUserName || 'Cargando...')}
+                          {profileDisplayName(formProfileId)}
                         </Text>
                       </View>
 
@@ -1821,7 +2055,7 @@ export default function App() {
                       <Text style={[styles.agendaTime, isDarkMode && { color: '#CBD5E1' }, largeFont && { fontSize: 18 }]}>
                         {isAppointment
                           ? `${event.patient}${event.location ? ` • ${event.location}` : ''}`
-                          : `${event.dose ? `Tomar ${event.dose}` : 'Tomar dosis'}${event.colorName ? ` • ${event.colorName}` : ''} • ${event.patient}`}
+                          : `${event.dose ? `Tomar ${event.dose}` : 'Tomar dosis'} • ${event.patient}`}
                       </Text>
                     </View>
 
@@ -1909,6 +2143,21 @@ export default function App() {
           </View>
         </View>
       </Modal>
+
+      <OnboardingTutorial
+        visible={showTutorial && !activeAlert}
+        onClose={() => {
+          setShowTutorial(false);
+          void markTutorialSeen(tutorialKeyRef.current);
+        }}
+      />
+
+      <AttentionAlertModal
+        alert={activeAlert}
+        events={events}
+        onClose={() => setActiveAlert(null)}
+        onTaken={handleDoseTaken}
+      />
     </SafeAreaView>
   );
 }
@@ -1978,6 +2227,34 @@ const styles = StyleSheet.create({
   },
   appointmentButtonText: { color: '#FFF', fontWeight: '800', fontSize: 18 },
   mainLayout: { flex: 1, paddingHorizontal: 15 },
+  profileChipsRow: { gap: 10, paddingBottom: 12 },
+  profileChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    minHeight: 48,
+    paddingHorizontal: 16,
+    borderRadius: 24,
+    backgroundColor: '#FFF',
+    borderWidth: 2,
+    borderColor: '#BAE6FD',
+  },
+  profileChipActive: { backgroundColor: '#0284C7', borderColor: '#0284C7' },
+  profileChipAdd: { borderStyle: 'dashed' },
+  profileChipText: { fontSize: 18, fontWeight: '700', color: '#0F172A' },
+  lowStockBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#FEF3C7',
+    borderColor: '#F59E0B',
+    borderWidth: 2,
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 12,
+  },
+  lowStockTitle: { fontSize: 18, fontWeight: '800', color: '#92400E' },
+  lowStockText: { fontSize: 16, fontWeight: '600', color: '#78350F', marginTop: 2 },
   calendarPanel: { backgroundColor: '#FFF', borderRadius: 20, padding: 15, marginBottom: 15 },
   calendarActions: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
   navButton: {
@@ -2080,6 +2357,15 @@ const styles = StyleSheet.create({
     borderColor: '#F1F5F9',
     overflow: 'hidden',
   },
+  cardDeleteButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#FEE2E2',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 10,
+  },
   swipeContainer: { marginBottom: 10, borderRadius: 14 },
   swipeDeleteAction: {
     backgroundColor: '#DC2626',
@@ -2090,13 +2376,6 @@ const styles = StyleSheet.create({
     borderRadius: 14,
   },
   swipeDeleteText: { color: '#FFF', fontSize: 16, fontWeight: '700', marginTop: 4 },
-  recipePhotoCardThumb: {
-    width: 70,
-    height: 70,
-    borderRadius: 12,
-    marginLeft: 12,
-    backgroundColor: '#E2E8F0',
-  },
   appointmentAgendaCard: {
     backgroundColor: '#FFFBEB',
     borderColor: '#FCD34D',
@@ -2112,33 +2391,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginRight: 12,
   },
-  appointmentTag: {
-    backgroundColor: '#F59E0B',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  appointmentTagText: {
-    color: '#FFF',
-    fontSize: 11,
-    fontWeight: '900',
-    letterSpacing: 0.5,
-  },
   agendaBullet: { width: 15, height: 15, borderRadius: 7.5, marginRight: 15 },
   agendaInfo: {
-    flex: 1,
-    minWidth: 0,
-  },
-  agendaTitleRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    width: '100%',
-  },
-  agendaTitleLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
     flex: 1,
     minWidth: 0,
   },
@@ -2148,11 +2402,12 @@ const styles = StyleSheet.create({
     color: '#102A43',
     flexShrink: 1,
   },
-  agendaPencilIcon: {
-    marginLeft: 8,
-    flexShrink: 0,
-  },
   agendaTime: { fontSize: 16, color: '#6B8E9B', marginTop: 2 },
+  agendaBulletLarge: { width: 20, height: 20, borderRadius: 10 },
+  agendaIconLarge: { width: 40, height: 40, borderRadius: 20 },
+  agendaWhenRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 18, rowGap: 4, marginTop: 6 },
+  agendaWhenItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  agendaWhenText: { fontSize: 18, fontWeight: '700', color: '#334155' },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   modalPanel: {
     backgroundColor: '#FFF',
@@ -2359,25 +2614,6 @@ const styles = StyleSheet.create({
   photoPreviewImage: {
     width: '100%',
     height: 180,
-  },
-  colorPaletteRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-    paddingVertical: 4,
-  },
-  colorCircle: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    borderWidth: 2,
-    borderColor: '#CBD5E1',
-  },
-  colorCircleActive: {
-    borderWidth: 3,
-    borderColor: '#0284C7',
-    transform: [{ scale: 1.18 }],
   },
   miniSubLabel: {
     fontSize: 14,
