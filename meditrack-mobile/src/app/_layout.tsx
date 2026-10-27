@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { AppState, Platform } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { ThemeProvider, useTheme } from '../context/ThemeContext';
-import { clearLegacyMedicationAlarms } from '../lib/legacyAlarms';
+import { configureAttentionAlerts } from '../lib/attentionAlerts';
 import { LocalAuth } from '../lib/storage';
 import { supabase } from '../lib/supabase';
 
@@ -16,7 +16,7 @@ function RootNavigation() {
 
   useEffect(() => {
     if (Platform.OS === 'web') return;
-    void clearLegacyMedicationAlarms();
+    configureAttentionAlerts();
 
     const updateTokenRefresh = (state: string | null) => {
       if (state === 'active') {

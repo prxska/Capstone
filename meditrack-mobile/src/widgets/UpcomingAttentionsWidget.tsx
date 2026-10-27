@@ -81,7 +81,6 @@ export function UpcomingAttentionsWidget({ events }: Props) {
             Math.max(38, Math.round(72 * naturalPhotoHeight / naturalPhotoWidth))
           );
           const details = [
-            event.type === 'recipe' && event.colorName ? `Envase: ${event.colorName}` : '',
             event.time,
             event.date,
             event.patient ? `(${event.patient})` : '',

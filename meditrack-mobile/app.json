@@ -12,6 +12,10 @@
     },
     "android": {
       "package": "com.meditrack.mobile",
+      "permissions": [
+        "android.permission.SCHEDULE_EXACT_ALARM",
+        "android.permission.USE_EXACT_ALARM"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -39,7 +43,7 @@
         {
           "icon": "./assets/images/icon.png",
           "color": "#0284C7",
-          "sounds": []
+          "sounds": ["./assets/sounds/meditrack_alarm.wav"]
         }
       ],
       [
@@ -59,7 +63,8 @@
             }
           ]
         }
-      ]
+      ],
+      "expo-audio"
     ],
     "extra": {
       "router": {},

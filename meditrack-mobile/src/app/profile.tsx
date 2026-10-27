@@ -12,14 +12,33 @@ import {
   Text, TouchableOpacity,
   View
 } from 'react-native';
+import * as Speech from 'expo-speech';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { resetTutorial } from '../components/OnboardingTutorial';
+import { ProfilesManager } from '../components/ProfilesManager';
 import { useTheme } from '../context/ThemeContext';
+import { cancelAttentionAlerts } from '../lib/attentionAlerts';
+import { OWNER_PROFILE_ID, setActiveProfileId } from '../lib/careProfiles';
 import { LocalAuth } from '../lib/storage';
 import { supabase } from '../lib/supabase';
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { isDarkMode, toggleTheme, largeFont, toggleFont } = useTheme();
+  const { isDarkMode, toggleTheme, largeFont, toggleFont, voiceAlerts, toggleVoiceAlerts } = useTheme();
+
+  // Vuelve al inicio, donde el tutorial se abre de nuevo
+  const handleReplayTutorial = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    await resetTutorial(isGuest || !session ? 'guest' : session.user.id);
+    router.back();
+  };
+
+  const handleToggleVoice = () => {
+    // Al activarla se escucha un ejemplo de cómo sonarán las alertas
+    if (!voiceAlerts) Speech.speak('Así sonarán tus alertas. Es hora de tomar tu medicamento.', { language: 'es-ES', rate: 0.9 });
+    else void Speech.stop();
+    toggleVoiceAlerts();
+  };
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState('');
   const [isGuest, setIsGuest] = useState(false);
@@ -65,6 +84,8 @@ export default function ProfileScreen() {
           text: 'Salir',
           style: 'destructive',
           onPress: async () => {
+            await cancelAttentionAlerts();
+            await setActiveProfileId(OWNER_PROFILE_ID);
             await LocalAuth.clearGuestMode();
             await supabase.auth.signOut();
             router.replace('/login' as any);
@@ -217,7 +238,69 @@ export default function ProfileScreen() {
                 thumbColor={largeFont ? '#15803D' : '#FFFFFF'}
               />
             </View>
+
+            <View style={[styles.divider, isDarkMode && { backgroundColor: '#334155' }]} />
+
+            <View style={styles.optionRow}>
+              <View style={styles.optionLeft}>
+                <View style={[styles.iconBox, { backgroundColor: voiceAlerts ? '#EDE9FE' : '#F1F5F9' }]}>
+                  <Ionicons
+                    name={voiceAlerts ? 'volume-high' : 'volume-mute'}
+                    size={26}
+                    color={voiceAlerts ? '#7C3AED' : '#64748B'}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[
+                    styles.optionTitle,
+                    isDarkMode && { color: '#F1F5F9' },
+                    largeFont && { fontSize: 24 }
+                  ]}>
+                    Leer alertas en voz alta
+                  </Text>
+                  <Text style={[
+                    styles.optionSubtitle,
+                    isDarkMode && { color: '#CBD5E1' },
+                    largeFont && { fontSize: 18 }
+                  ]}>
+                    {voiceAlerts ? 'Dice el medicamento y la dosis' : 'Desactivado'}
+                  </Text>
+                </View>
+              </View>
+              <Switch
+                value={voiceAlerts}
+                onValueChange={handleToggleVoice}
+                trackColor={{ false: '#CBD5E1', true: '#A78BFA' }}
+                thumbColor={voiceAlerts ? '#7C3AED' : '#FFFFFF'}
+              />
+            </View>
           </View>
+
+          {/* Perfiles de las personas que se cuidan desde esta cuenta */}
+          <Text style={[
+            styles.sectionTitle,
+            isDarkMode && { color: '#CBD5E1' },
+            largeFont && { fontSize: 18 }
+          ]}>
+            PERFILES
+          </Text>
+          <ProfilesManager onOwnerRenamed={(name) => !isGuest && setUserName(name)} />
+
+          <TouchableOpacity
+            style={[styles.tutorialButton, isDarkMode && styles.darkCard]}
+            onPress={handleReplayTutorial}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+          >
+            <Ionicons name="help-circle" size={26} color={isDarkMode ? '#7DD3FC' : '#0369A1'} style={{ marginRight: 8 }} />
+            <Text style={[
+              styles.tutorialButtonText,
+              isDarkMode && { color: '#7DD3FC' },
+              largeFont && { fontSize: 22 }
+            ]}>
+              Ver tutorial de nuevo
+            </Text>
+          </TouchableOpacity>
 
           {/* Botón Salir */}
           <TouchableOpacity
@@ -401,6 +484,18 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: '#F1F5F9',
   },
+  tutorialButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFF',
+    borderRadius: 16,
+    paddingVertical: 16,
+    marginBottom: 16,
+    borderWidth: 2,
+    borderColor: '#BAE6FD',
+  },
+  tutorialButtonText: { fontSize: 18, fontWeight: '700', color: '#0369A1' },
   signOutButton: {
     flexDirection: 'row',
     alignItems: 'center',
