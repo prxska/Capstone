@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as ImagePicker from 'expo-image-picker';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Swipeable, { type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
@@ -222,6 +222,10 @@ export default function App() {
   // Perfil al que pertenece el registro que se está creando o editando
   const [formProfileId, setFormProfileId] = useState(OWNER_PROFILE_ID);
   const [isGuest, setIsGuest] = useState(false);
+
+  const [permission, requestPermission] = useCameraPermissions();
+  const [isCameraVisible, setIsCameraVisible] = useState(false);
+  const cameraRef = useRef<any>(null);
 
   const [editingColor, setEditingColor] = useState<{ id: string; name: string } | null>(null);
   const [doseAmount, setDoseAmount] = useState('1');
@@ -630,27 +634,32 @@ export default function App() {
   };
 
   const handlePickMedicationPhoto = async () => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission) return;
     if (!permission.granted) {
-      Alert.alert('Permiso requerido', 'Necesitamos acceso a tus fotos para guardar una referencia del medicamento.');
-      return;
+      const { granted } = await requestPermission();
+      if (!granted) {
+        Alert.alert('Permiso requerido', 'Necesitamos acceso a la cámara.');
+        return;
+      }
     }
+    // En lugar de abrir la app nativa, mostramos nuestro componente interno
+    setIsCameraVisible(true);
+  };
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      quality: 0.8,
-    });
-
-    if (result.canceled || !result.assets?.[0]?.uri) {
-      return;
+  const takePicture = async () => {
+    if (cameraRef.current) {
+      const photo = await cameraRef.current.takePictureAsync({
+        quality: 0.8,
+      });
+      if (photo?.uri) {
+        setRecipeForm((prev) => ({
+          ...prev,
+          photoUri: photo.uri,
+          photoStoragePath: '',
+        }));
+      }
+      setIsCameraVisible(false);
     }
-
-    setRecipeForm((prev) => ({
-      ...prev,
-      photoUri: result.assets[0].uri,
-      photoStoragePath: '',
-    }));
   };
 
   const handleEditEvent = (event: any) => {
@@ -1499,6 +1508,30 @@ export default function App() {
                               {recipeForm.photoUri ? 'Cambiar foto' : 'Agregar foto'}
                             </Text>
                           </TouchableOpacity>
+
+                          {/* CÁMARA */}
+                          {isCameraVisible && (
+                            <View style={{ height: 300, width: '100%', borderRadius: 12, overflow: 'hidden', marginBottom: 15 }}>
+                              <CameraView 
+                                style={{ flex: 1 }} 
+                                facing="back"
+                                ref={cameraRef}
+                              />
+                              <TouchableOpacity 
+                                style={{ position: 'absolute', bottom: 15, alignSelf: 'center', backgroundColor: '#36B9CC', padding: 12, borderRadius: 30 }}
+                                onPress={takePicture}
+                              >
+                                <Text style={{ color: '#FFF', fontWeight: 'bold' }}>Capturar Foto</Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity 
+                                style={{ position: 'absolute', top: 15, right: 15, backgroundColor: 'rgba(0,0,0,0.5)', padding: 8, borderRadius: 20 }}
+                                onPress={() => setIsCameraVisible(false)}
+                              >
+                                <Text style={{ color: '#FFF', fontWeight: 'bold' }}>X</Text>
+                              </TouchableOpacity>
+                            </View>
+                          )}
+                          {/* FIN DEL CÓDIGO DE LA CÁMARA */}
 
                           {recipeForm.photoUri ? (
                             <View style={[styles.photoPreviewCard, isDarkMode && styles.darkPhotoPreviewCard]}>
