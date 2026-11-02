@@ -3,7 +3,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import Swipeable, { type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
 import {
   ActivityIndicator,
   Alert,
@@ -20,6 +19,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import Swipeable, { type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AttentionAlertModal } from '../components/AttentionAlertModal';
 import { OnboardingTutorial, markTutorialSeen, shouldShowTutorial } from '../components/OnboardingTutorial';
@@ -129,14 +129,12 @@ const initialRecipeForm = {
   photoUri: '',
   photoStoragePath: '',
   isChronic: false,
-  // Cantidad disponible (opcional); vacío = sin control de stock
   stock: '',
 };
 
 const initialAppointmentForm = {
   patient: '',
   doctor: '',
-  specialty: '',
   date: getTodayString(),
   time: '10:00',
   location: '',
@@ -171,7 +169,6 @@ const fullWeekDays = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Vie
 function getEventsForDate(events: any[], dateKey: string) {
   return events.filter((event) => {
     if (event.type === 'recipe') {
-      // Sin endDate = tratamiento crónico: no tiene fecha límite
       return dateKey >= event.date && (!event.endDate || dateKey <= event.endDate);
     }
     return event.date === dateKey;
@@ -216,10 +213,8 @@ export default function App() {
   const [selectedMonth, setSelectedMonth] = useState(new Date());
   const [currentUserName, setCurrentUserName] = useState('');
   const [profiles, setProfiles] = useState<CareProfile[]>([]);
-  // Nombre elegido por el titular; '' = sin nombre (se muestra "Yo")
   const [ownerName, setOwnerNameState] = useState('');
   const [activeProfileId, setActiveProfileId] = useState(OWNER_PROFILE_ID);
-  // Perfil al que pertenece el registro que se está creando o editando
   const [formProfileId, setFormProfileId] = useState(OWNER_PROFILE_ID);
   const [isGuest, setIsGuest] = useState(false);
 
@@ -239,10 +234,8 @@ export default function App() {
   const [dayDetailKey, setDayDetailKey] = useState<string | null>(null);
   const [activeAlert, setActiveAlert] = useState<AttentionAlertData | null>(null);
   const [showTutorial, setShowTutorial] = useState(false);
-  // 'guest' o el id del usuario: el tutorial se muestra una vez por cuenta
   const tutorialKeyRef = useRef('guest');
   const eventsRef = useRef<any[]>([]);
-  // false si la última carga falló: en ese caso no se tocan las alertas ya programadas
   const alertsInSyncRef = useRef(false);
   const [pickerTarget, setPickerTarget] = useState<'startDate' | 'endDate' | 'appDate' | null>(null);
   const [pickerMonth, setPickerMonth] = useState(new Date());
@@ -290,7 +283,6 @@ export default function App() {
     [events, activeProfileId]
   );
 
-  // Medicamentos vigentes cuyo stock alcanza para LOW_STOCK_DAYS días o menos
   const lowStockRecipes = useMemo(
     () =>
       visibleEvents.filter((event) => {
@@ -308,7 +300,6 @@ export default function App() {
     return profiles.find((p) => p.id === profileId)?.name || 'Perfil';
   };
 
-  // Nombre que se guarda como paciente del registro
   const patientNameFor = (profileId: string) => {
     if (profileId === OWNER_PROFILE_ID) return isGuest ? ownerName || 'Usuario Local' : currentUserName;
     return profiles.find((p) => p.id === profileId)?.name || currentUserName;
@@ -333,7 +324,6 @@ export default function App() {
     });
   }, [visibleEvents]);
 
-  // Cada toma del día (una por horario) y cada cita, ordenadas por hora
   const dayDetailItems = useMemo(() => {
     if (!dayDetailKey) return [];
     const items = getEventsForDate(visibleEvents, dayDetailKey).flatMap((event) => {
@@ -351,7 +341,6 @@ export default function App() {
 
   const openEventFromDayDetail = (event: any) => {
     setDayDetailKey(null);
-    // Espera a que se cierre el modal del día antes de abrir el formulario (iOS no apila modales)
     setTimeout(() => handleEditEvent(event), 300);
   };
 
@@ -362,7 +351,6 @@ export default function App() {
       setIsGuest(guest);
 
       if (guest) {
-        // Carga directa y segura desde AsyncStorage
         const rawRecipes = await AsyncStorage.getItem(LOCAL_RECIPES_KEY);
         const rawAppts = await AsyncStorage.getItem(LOCAL_APPTS_KEY);
 
@@ -395,9 +383,8 @@ export default function App() {
           id: `app-${a.id}`,
           rawId: a.id,
           doctor: a.doctor,
-          specialty: a.specialty,
           location: a.location,
-          title: `Cita: ${a.specialty ? `${a.specialty} (${a.doctor})` : a.doctor}`,
+          title: `Cita: ${a.doctor}`,
           patient: a.patient || 'Usuario Local',
           date: a.date,
           time: a.time,
@@ -414,7 +401,6 @@ export default function App() {
         void syncAttentionAlerts(nextEvents);
         alertsInSyncRef.current = true;
       } else {
-        // Carga desde Supabase
         const { data: { session }, error: sessionError } = await supabase.auth.getSession();
         if (sessionError || !session) {
           setEvents([]);
@@ -431,8 +417,6 @@ export default function App() {
 
         let [recipesResult, appointmentsResult] = await fetchUserRecords();
 
-        // Justo después de iniciar sesión o renovar el token, la base de datos puede rechazarlo
-        // por unos segundos ("JWT issued at future") si su reloj va levemente atrás del de Auth.
         const isClockSkew = (e: any) => /issued at future/i.test(e?.message || '');
         if (isClockSkew(recipesResult.error) || isClockSkew(appointmentsResult.error)) {
           await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -478,9 +462,8 @@ export default function App() {
           id: `app-${a.id}`,
           rawId: a.id,
           doctor: a.doctor,
-          specialty: a.specialty,
           location: a.location,
-          title: `Cita: ${a.specialty ? `${a.specialty} (${a.doctor})` : a.doctor}`,
+          title: `Cita: ${a.doctor}`,
           patient: a.patient || currentUserName,
           date: a.date,
           time: a.time,
@@ -541,10 +524,8 @@ export default function App() {
     }
   };
 
-  // Ventana emergente cuando suena una alerta o se toca su notificación
   useEffect(() => listenForAttentionAlerts(setActiveAlert), []);
 
-  // Las alertas se programan para los próximos días: al volver a la app se renuevan
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {
       if (state === 'active' && alertsInSyncRef.current) void syncAttentionAlerts(eventsRef.current);
@@ -699,7 +680,6 @@ export default function App() {
       setAppointmentForm({
         patient: event.patient,
         doctor: event.doctor || '',
-        specialty: event.specialty || '',
         date: event.date,
         time: event.time || '10:00',
         location: event.location || '',
@@ -792,6 +772,7 @@ export default function App() {
     if (!editingId) return;
     confirmDelete(editingId, formType);
   };
+  
   const handleSubmit = async () => {
     setSaving(true);
     try {
@@ -826,7 +807,7 @@ export default function App() {
           setSaving(false);
           return;
         }
-        // profile_id y stock solo se envían si se usan, para que guardar funcione aunque falte la migración
+        
         const editingHadStock = !!editingId && events.some(
           (e) => e.type === 'recipe' && String(e.rawId) === String(editingId) && e.stock != null
         );
@@ -834,10 +815,9 @@ export default function App() {
           ...(profileDbId ? { profile_id: profileDbId } : {}),
           ...(stockValue != null || editingHadStock ? { stock: stockValue } : {}),
         };
-        // Al editar se conserva el color; una receta nueva recibe uno que no use otra receta
+        
         const recipeColor = (editingId && editingColor) || pickNextRecipeColor(events);
         if (guest) {
-          // Guardar directamente en AsyncStorage
           const raw = await AsyncStorage.getItem(LOCAL_RECIPES_KEY);
           let list = raw ? JSON.parse(raw) : [];
           const recipeId = editingId || `rec_${Date.now()}`;
@@ -867,7 +847,6 @@ export default function App() {
 
           await AsyncStorage.setItem(LOCAL_RECIPES_KEY, JSON.stringify(list));
         } else {
-          // Guardar en Supabase
           const payload = {
             user_id: activeUserId,
             patient: patientName,
@@ -943,7 +922,6 @@ export default function App() {
         }
 
         if (guest) {
-          // Guardar cita directamente en AsyncStorage
           const raw = await AsyncStorage.getItem(LOCAL_APPTS_KEY);
           let list = raw ? JSON.parse(raw) : [];
 
@@ -952,7 +930,6 @@ export default function App() {
             patient: patientName,
             profile_id: profileDbId,
             doctor: appointmentForm.doctor,
-            specialty: appointmentForm.specialty,
             date: appointmentForm.date,
             time: appointmentForm.time,
             location: appointmentForm.location,
@@ -966,13 +943,11 @@ export default function App() {
 
           await AsyncStorage.setItem(LOCAL_APPTS_KEY, JSON.stringify(list));
         } else {
-          // Guardar cita en Supabase
           const payload = {
             user_id: activeUserId,
             patient: patientName,
             ...(profileDbId ? { profile_id: profileDbId } : {}),
             doctor: appointmentForm.doctor,
-            specialty: appointmentForm.specialty,
             date: appointmentForm.date,
             time: appointmentForm.time,
             location: appointmentForm.location,
@@ -1077,7 +1052,6 @@ export default function App() {
           onScroll={handleScroll}
           scrollEventThrottle={16}
         >
-          {/* Selector de perfil: cada uno tiene sus propios medicamentos y citas */}
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -1267,7 +1241,6 @@ export default function App() {
             )}
           </View>
 
-          {/* Zona Próximas Atenciones */}
           <View style={[styles.agendaPanel, isDarkMode && { backgroundColor: '#1E293B' }]}>
             <View style={styles.sectionHeader}>
               <View style={[styles.dot, { backgroundColor: '#8A2BE2' }]} />
@@ -1367,7 +1340,6 @@ export default function App() {
           </View>
         </ScrollView>
 
-        {/* Indicador inferior accesible */}
         {showScrollPrompt && (
           <View pointerEvents="none" style={styles.floatingPromptContainer}>
             <View style={[styles.floatingPromptPill, isDarkMode && styles.floatingPromptDark]}>
@@ -1380,7 +1352,6 @@ export default function App() {
         )}
       </View>
 
-      {/* Modal de Ingreso / Edición */}
       <Modal visible={isFormOpen} transparent={true} animationType="slide">
         <View style={styles.modalBackdrop}>
           <View style={[styles.modalPanel, isDarkMode && { backgroundColor: '#1E293B' }]}>
@@ -1412,7 +1383,6 @@ export default function App() {
                 <View style={styles.formGroup}>
                   {formType === 'recipe' ? (
                     <>
-                      {/* Indicador de pasos: se muestra la info de a poco para no abrumar */}
                       <View style={styles.stepHeaderRow}>
                         <Text style={[styles.stepCounterText, isDarkMode && { color: '#CBD5E1' }]}>
                           Paso {recipeStep + 1} de {RECIPE_STEP_TITLES.length}
@@ -1566,7 +1536,6 @@ export default function App() {
                             })}
                           </View>
 
-                          {/* Selector táctil accesible para la primera toma */}
                           <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>
                             O ajusta la hora manualmente:
                           </Text>
@@ -1720,7 +1689,6 @@ export default function App() {
 
                       {recipeStep === 2 && (
                         <>
-                          {/* Para medicamentos de uso permanente: sin fecha de término */}
                           <TouchableOpacity
                             style={[
                               styles.chronicToggleCard,
@@ -1816,7 +1784,6 @@ export default function App() {
                         </>
                       )}
 
-                      {/* Navegación entre pasos */}
                       <View style={styles.stepNavRow}>
                         {recipeStep > 0 && (
                           <TouchableOpacity
@@ -1854,7 +1821,19 @@ export default function App() {
                         </Text>
                       </View>
 
-                      {/* Selector táctil accesible para la hora de la cita */}
+                      {/* FECHA MOVIDA AQUÍ ARRIBA */}
+                      <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Fecha Cita</Text>
+                      <TouchableOpacity
+                        style={[styles.dateTriggerButton, isDarkMode && styles.darkDateTrigger]}
+                        onPress={() => openPickerModal('appDate')}
+                      >
+                        <Ionicons name="calendar-outline" size={18} color="#D97706" />
+                        <Text style={[styles.dateTriggerText, isDarkMode && { color: '#F1F5F9' }]}>
+                          {appointmentForm.date}
+                        </Text>
+                      </TouchableOpacity>
+
+                      {/* HORA AHORA ESTÁ DEBAJO DE LA FECHA */}
                       <Text style={[styles.label, isDarkMode && styles.darkSubtext, { marginTop: 4 }]}>
                         Hora de la Cita
                       </Text>
@@ -1912,17 +1891,6 @@ export default function App() {
                         </View>
                       </View>
 
-                      <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Fecha Cita</Text>
-                      <TouchableOpacity
-                        style={[styles.dateTriggerButton, isDarkMode && styles.darkDateTrigger]}
-                        onPress={() => openPickerModal('appDate')}
-                      >
-                        <Ionicons name="calendar-outline" size={18} color="#D97706" />
-                        <Text style={[styles.dateTriggerText, isDarkMode && { color: '#F1F5F9' }]}>
-                          {appointmentForm.date}
-                        </Text>
-                      </TouchableOpacity>
-
                       <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Médico Tratante</Text>
                       <TextInput
                         style={[styles.input, isDarkMode && styles.darkInput]}
@@ -1930,15 +1898,6 @@ export default function App() {
                         placeholderTextColor="#94A3B8"
                         value={appointmentForm.doctor}
                         onChangeText={(t) => handleAppointmentChange('doctor', t)}
-                      />
-
-                      <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Especialidad</Text>
-                      <TextInput
-                        style={[styles.input, isDarkMode && styles.darkInput]}
-                        placeholder="Ej. Cardiología / Control general"
-                        placeholderTextColor="#94A3B8"
-                        value={appointmentForm.specialty}
-                        onChangeText={(t) => handleAppointmentChange('specialty', t)}
                       />
 
                       <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Lugar o Centro Médico</Text>
@@ -1991,7 +1950,6 @@ export default function App() {
         </View>
       </Modal>
 
-      {/* Vista del día: todo lo que hay que tomar y las citas */}
       <Modal
         visible={dayDetailKey !== null}
         transparent={true}
@@ -2070,7 +2028,6 @@ export default function App() {
         </View>
       </Modal>
 
-      {/* Mini-modal interactivo para seleccionar el día */}
       <Modal visible={pickerTarget !== null} transparent={true} animationType="fade">
         <View style={styles.pickerBackdrop}>
           <View style={[styles.pickerDialog, isDarkMode && { backgroundColor: '#1E293B' }]}>

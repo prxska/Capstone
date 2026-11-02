@@ -43,7 +43,9 @@
         {
           "icon": "./assets/images/icon.png",
           "color": "#0284C7",
-          "sounds": ["./assets/sounds/meditrack_alarm.wav"]
+          "sounds": [
+            "./assets/sounds/meditrack_alarm.wav"
+          ]
         }
       ],
       [
@@ -64,7 +66,8 @@
           ]
         }
       ],
-      "expo-audio"
+      "expo-audio",
+      "expo-asset"
     ],
     "extra": {
       "router": {},
