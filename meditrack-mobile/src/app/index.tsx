@@ -358,10 +358,10 @@ export default function App() {
         const rawRecipes = await AsyncStorage.getItem(LOCAL_RECIPES_KEY);
         const rawAppts = await AsyncStorage.getItem(LOCAL_APPTS_KEY);
 
-        const localRecipes = rawRecipes ? JSON.parse(rawRecipes) : [];
-        const localAppointments = rawAppts ? JSON.parse(rawAppts) : [];
+        const localRecipes = (rawRecipes ? JSON.parse(rawRecipes) : []).filter((r: any) => !r.deleted_at);
+        const localAppointments = (rawAppts ? JSON.parse(rawAppts) : []).filter((a: any) => !a.deleted_at);
 
-        const parsedRecipes = localRecipes.map((r: any) => ({
+const parsedRecipes = localRecipes.map((r: any) => ({
           id: `rec-${r.id}`,
           rawId: r.id,
           medication: r.medication,
@@ -399,6 +399,7 @@ export default function App() {
           type: 'appointment' as const,
         }));
 
+
         const nextEvents = [...parsedRecipes, ...parsedAppointments];
         setEvents(nextEvents);
         await syncUpcomingAttentionsWidget(nextEvents);
@@ -414,12 +415,20 @@ export default function App() {
         }
         const user = session.user;
 
+
+
+
         const fetchUserRecords = () => Promise.all([
-          supabase.from('recipes').select('*').eq('user_id', user.id),
-          supabase.from('appointments').select('*').eq('user_id', user.id)
+          supabase.from('recipes').select('*').eq('user_id', user.id).is('deleted_at', null),
+          supabase.from('appointments').select('*').eq('user_id', user.id).is('deleted_at', null)
         ]);
 
-        let [recipesResult, appointmentsResult] = await fetchUserRecords();
+
+
+
+
+
+let [recipesResult, appointmentsResult] = await fetchUserRecords();
 
         const isClockSkew = (e: any) => /issued at future/i.test(e?.message || '');
         if (isClockSkew(recipesResult.error) || isClockSkew(appointmentsResult.error)) {
@@ -705,14 +714,17 @@ export default function App() {
         if (recordType === 'recipe') {
           const raw = await AsyncStorage.getItem(LOCAL_RECIPES_KEY);
           const list = raw ? JSON.parse(raw) : [];
-          const updated = list.filter((r: any) => String(r.id) !== String(recordId));
-          if (updated.length === list.length) throw new Error('No se encontró el medicamento en este teléfono.');
+          // En lugar de filtrar (borrar), mapeamos para agregarle la fecha de borrado
+          const updated = list.map((r: any) => 
+            String(r.id) === String(recordId) ? { ...r, deleted_at: new Date().toISOString() } : r
+          );
           await AsyncStorage.setItem(LOCAL_RECIPES_KEY, JSON.stringify(updated));
         } else {
           const raw = await AsyncStorage.getItem(LOCAL_APPTS_KEY);
           const list = raw ? JSON.parse(raw) : [];
-          const updated = list.filter((a: any) => String(a.id) !== String(recordId));
-          if (updated.length === list.length) throw new Error('No se encontró la cita en este teléfono.');
+          const updated = list.map((a: any) => 
+            String(a.id) === String(recordId) ? { ...a, deleted_at: new Date().toISOString() } : a
+          );
           await AsyncStorage.setItem(LOCAL_APPTS_KEY, JSON.stringify(updated));
         }
       } else {
@@ -720,34 +732,28 @@ export default function App() {
         if (sessionError || !session) {
           throw new Error('La sesión expiró. Inicia sesión otra vez para eliminar este registro.');
         }
+        
         const table = recordType === 'recipe' ? 'recipes' : 'appointments';
-        const { data: existing, error: lookupError } = await supabase
+        
+        // AQUÍ ESTÁ EL CAMBIO PRINCIPAL: Usamos UPDATE en lugar de DELETE
+        const { error } = await supabase
           .from(table)
-          .select('id')
-          .eq('id', recordId)
-          .maybeSingle();
-        if (lookupError) throw lookupError;
-        if (!existing) throw new Error('No se encontró el registro para eliminar. Actualiza la lista e inténtalo de nuevo.');
-
-        const { error } = await supabase.from(table).delete().eq('id', recordId);
+          .update({ deleted_at: new Date().toISOString() })
+          .eq('id', recordId);
+          
         if (error) throw error;
-
-        const { data: remaining, error: verifyError } = await supabase
-          .from(table)
-          .select('id')
-          .eq('id', recordId)
-          .maybeSingle();
-        if (verifyError) throw verifyError;
-        if (remaining) throw new Error('Supabase no eliminó el registro. Revisa la política DELETE de la tabla.');
       }
 
       if (String(editingId) === String(recordId)) {
         setIsFormOpen(false);
         setEditingId(null);
       }
-      await fetchEvents();
+      
+      await fetchEvents(); // Recargamos para que desaparezca de la vista principal
+      
     } catch (err: any) {
       const message = String(err?.message || 'No se pudo eliminar el registro.');
+      console.error("Error al eliminar:", message); // Para que veas el error en la consola
       Alert.alert(
         /jwt expired|token expired/i.test(message) ? 'Sesión expirada' : 'Error al eliminar',
         message

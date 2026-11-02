@@ -1,8 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
+import * as Speech from 'expo-speech';
 import { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
+  Modal,
   NativeScrollEvent,
   NativeSyntheticEvent,
   Platform,
@@ -12,7 +16,6 @@ import {
   Text, TouchableOpacity,
   View
 } from 'react-native';
-import * as Speech from 'expo-speech';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { resetTutorial } from '../components/OnboardingTutorial';
 import { ProfilesManager } from '../components/ProfilesManager';
@@ -26,7 +29,16 @@ export default function ProfileScreen() {
   const router = useRouter();
   const { isDarkMode, toggleTheme, largeFont, toggleFont, voiceAlerts, toggleVoiceAlerts } = useTheme();
 
-  // Vuelve al inicio, donde el tutorial se abre de nuevo
+  const [userName, setUserName] = useState('');
+  const [userEmail, setUserEmail] = useState('');
+  const [isGuest, setIsGuest] = useState(false);
+  const [showScrollPrompt, setShowScrollPrompt] = useState(true);
+
+  // Estados para el Historial
+  const [isHistoryVisible, setIsHistoryVisible] = useState(false);
+  const [historyData, setHistoryData] = useState<any[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+
   const handleReplayTutorial = async () => {
     const { data: { session } } = await supabase.auth.getSession();
     await resetTutorial(isGuest || !session ? 'guest' : session.user.id);
@@ -34,15 +46,10 @@ export default function ProfileScreen() {
   };
 
   const handleToggleVoice = () => {
-    // Al activarla se escucha un ejemplo de cómo sonarán las alertas
     if (!voiceAlerts) Speech.speak('Así sonarán tus alertas. Es hora de tomar tu medicamento.', { language: 'es-ES', rate: 0.9 });
     else void Speech.stop();
     toggleVoiceAlerts();
   };
-  const [userName, setUserName] = useState('');
-  const [userEmail, setUserEmail] = useState('');
-  const [isGuest, setIsGuest] = useState(false);
-  const [showScrollPrompt, setShowScrollPrompt] = useState(true);
 
   useEffect(() => {
     async function loadData() {
@@ -62,6 +69,51 @@ export default function ProfileScreen() {
     }
     loadData();
   }, []);
+
+  // Función para cargar los medicamentos eliminados
+  const fetchHistory = async () => {
+    setLoadingHistory(true);
+    try {
+      const guest = await LocalAuth.isGuestMode();
+      
+      if (guest) {
+        // 1. Buscar en almacenamiento local
+        const raw = await AsyncStorage.getItem('@meditrack_local_recipes');
+        const list = raw ? JSON.parse(raw) : [];
+        
+        // Filtrar los que tienen deleted_at y ordenarlos
+        const deleted = list
+          .filter((r: any) => r.deleted_at)
+          .sort((a: any, b: any) => new Date(a.deleted_at).getTime() - new Date(b.deleted_at).getTime());
+        
+        setHistoryData(deleted);
+      } else {
+        // 2. Buscar en Supabase
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { data, error } = await supabase
+            .from('recipes')
+            .select('*')
+            .eq('user_id', user.id)
+            .not('deleted_at', 'is', null) // Solo los borrados
+            .order('deleted_at', { ascending: true }); // Del más antiguo al más nuevo
+
+          if (error) throw error;
+          setHistoryData(data || []);
+        }
+      }
+    } catch (error) {
+      console.error(error);
+      Alert.alert('Error', 'No se pudo cargar el historial.');
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  const handleOpenHistory = () => {
+    setIsHistoryVisible(true);
+    fetchHistory();
+  };
 
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const offsetY = event.nativeEvent.contentOffset.y;
@@ -148,6 +200,29 @@ export default function ProfileScreen() {
             ]}>
               {userEmail}
             </Text>
+
+            {/* BOTÓN VER HISTORIAL */}
+            <TouchableOpacity 
+              style={[
+                styles.historyButton, 
+                isDarkMode && styles.darkHistoryButton
+              ]}
+              onPress={handleOpenHistory}
+            >
+              <Ionicons 
+                name="time-outline" 
+                size={20} 
+                color={isDarkMode ? '#38BDF8' : '#0284C7'} 
+                style={{ marginRight: 8 }} 
+              />
+              <Text style={[
+                styles.historyButtonText,
+                isDarkMode && { color: '#38BDF8' },
+                largeFont && { fontSize: 18 }
+              ]}>
+                Ver historial de medicamentos
+              </Text>
+            </TouchableOpacity>
 
             {isGuest && (
               <View style={styles.guestWarningBox}>
@@ -330,6 +405,85 @@ export default function ProfileScreen() {
           </View>
         )}
       </View>
+
+      {/* MODAL DE HISTORIAL DE MEDICAMENTOS */}
+      <Modal
+        visible={isHistoryVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setIsHistoryVisible(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalPanel, isDarkMode && { backgroundColor: '#1E293B' }]}>
+            
+            <View style={styles.modalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Ionicons name="time" size={24} color={isDarkMode ? '#38BDF8' : '#0284C7'} />
+                <Text style={[styles.modalTitle, isDarkMode && { color: '#F1F5F9' }, largeFont && { fontSize: 22 }]}>
+                  Historial Médico
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setIsHistoryVisible(false)}>
+                <Ionicons name="close-circle" size={32} color={isDarkMode ? '#64748B' : '#94A3B8'} />
+              </TouchableOpacity>
+            </View>
+
+            {loadingHistory ? (
+              <ActivityIndicator size="large" color="#0EA5E9" style={{ marginTop: 40 }} />
+            ) : historyData.length === 0 ? (
+              <View style={{ alignItems: 'center', marginTop: 40 }}>
+                <Ionicons name="document-text-outline" size={60} color={isDarkMode ? '#334155' : '#CBD5E1'} />
+                <Text style={{ textAlign: 'center', marginTop: 16, color: isDarkMode ? '#CBD5E1' : '#64748B', fontSize: 16 }}>
+                  No hay medicamentos en el historial.
+                </Text>
+              </View>
+            ) : (
+              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 20 }}>
+{historyData.map((med, index) => (
+                  <View 
+                    key={med.id || index} 
+                    style={[
+                      styles.historyCard, 
+                      isDarkMode && { backgroundColor: '#0F172A', borderColor: '#334155' }
+                    ]}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                      <Ionicons 
+                        name="medical" 
+                        size={20} 
+                        color="#0EA5E9" 
+                        style={{ marginRight: 6 }} 
+                      />
+                      <Text style={[styles.historyName, isDarkMode && { color: '#F1F5F9' }, largeFont && { fontSize: 20 }]}>
+                        {med.medication}
+                      </Text>
+                    </View>
+
+                    <Text style={[styles.historyDetail, isDarkMode && { color: '#94A3B8' }]}>
+                      Dosis: {med.dose || 'No especificada'}
+                    </Text>
+                    <Text style={[styles.historyDetail, isDarkMode && { color: '#94A3B8' }]}>
+                      Frecuencia: {med.frequency}
+                    </Text>
+                    <Text style={[styles.historyDetail, isDarkMode && { color: '#94A3B8' }]}>
+                      Paciente: {med.patient}
+                    </Text>
+                    
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
+                      <Ionicons name="trash-outline" size={14} color="#EF4444" style={{ marginRight: 4 }} />
+                      <Text style={{ fontSize: 13, color: '#EF4444', fontWeight: '700' }}>
+                        Eliminado el: {new Date(med.deleted_at).toLocaleDateString('es-CL', {
+                          day: '2-digit', month: '2-digit', year: 'numeric'
+                        })}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -543,5 +697,75 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: '#475569',
+  },
+  
+  // ESTILOS NUEVOS PARA EL BOTÓN Y EL HISTORIAL
+  historyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 16,
+    backgroundColor: '#E0F2FE',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#BAE6FD',
+    width: '100%',
+  },
+  darkHistoryButton: {
+    backgroundColor: '#1E293B',
+    borderColor: '#334155',
+  },
+  historyButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0284C7',
+    textAlign: 'center',
+    flex: 1, // Esto ayuda a que el texto use todo el ancho disponible
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'flex-end',
+  },
+  modalPanel: {
+    backgroundColor: '#FFF',
+    borderTopLeftRadius: 25,
+    borderTopRightRadius: 25,
+    padding: 24,
+    maxHeight: '85%',
+    minHeight: '50%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#102A43',
+  },
+  historyCard: {
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 12,
+  },
+  historyName: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#0F172A',
+    marginBottom: 6,
+  },
+  historyDetail: {
+    fontSize: 14,
+    color: '#475569',
+    marginBottom: 3,
+    fontWeight: '500',
   },
 });
