@@ -358,10 +358,11 @@ export default function App() {
         const rawRecipes = await AsyncStorage.getItem(LOCAL_RECIPES_KEY);
         const rawAppts = await AsyncStorage.getItem(LOCAL_APPTS_KEY);
 
+        // 🌟 AQUÍ ESTÁ EL FILTRO 1: Para el modo local (invitado)
         const localRecipes = (rawRecipes ? JSON.parse(rawRecipes) : []).filter((r: any) => !r.deleted_at);
         const localAppointments = (rawAppts ? JSON.parse(rawAppts) : []).filter((a: any) => !a.deleted_at);
 
-const parsedRecipes = localRecipes.map((r: any) => ({
+        const parsedRecipes = localRecipes.map((r: any) => ({
           id: `rec-${r.id}`,
           rawId: r.id,
           medication: r.medication,
@@ -399,7 +400,6 @@ const parsedRecipes = localRecipes.map((r: any) => ({
           type: 'appointment' as const,
         }));
 
-
         const nextEvents = [...parsedRecipes, ...parsedAppointments];
         setEvents(nextEvents);
         await syncUpcomingAttentionsWidget(nextEvents);
@@ -415,20 +415,13 @@ const parsedRecipes = localRecipes.map((r: any) => ({
         }
         const user = session.user;
 
-
-
-
+        // 🌟 AQUÍ ESTÁ EL FILTRO 2: Para Supabase (los .is('deleted_at', null))
         const fetchUserRecords = () => Promise.all([
           supabase.from('recipes').select('*').eq('user_id', user.id).is('deleted_at', null),
           supabase.from('appointments').select('*').eq('user_id', user.id).is('deleted_at', null)
         ]);
 
-
-
-
-
-
-let [recipesResult, appointmentsResult] = await fetchUserRecords();
+        let [recipesResult, appointmentsResult] = await fetchUserRecords();
 
         const isClockSkew = (e: any) => /issued at future/i.test(e?.message || '');
         if (isClockSkew(recipesResult.error) || isClockSkew(appointmentsResult.error)) {
@@ -500,7 +493,6 @@ let [recipesResult, appointmentsResult] = await fetchUserRecords();
       setLoading(false);
     }
   }
-
   useFocusEffect(
     useCallback(() => {
       void loadUser();
@@ -707,14 +699,13 @@ let [recipesResult, appointmentsResult] = await fetchUserRecords();
     setIsFormOpen(true);
   };
 
-  const deleteRecord = async (recordId: string, recordType: 'recipe' | 'appointment') => {
+    const deleteRecord = async (recordId: string, recordType: 'recipe' | 'appointment') => {
     setSaving(true);
     try {
       if (isGuest) {
         if (recordType === 'recipe') {
           const raw = await AsyncStorage.getItem(LOCAL_RECIPES_KEY);
           const list = raw ? JSON.parse(raw) : [];
-          // En lugar de filtrar (borrar), mapeamos para agregarle la fecha de borrado
           const updated = list.map((r: any) => 
             String(r.id) === String(recordId) ? { ...r, deleted_at: new Date().toISOString() } : r
           );
@@ -735,7 +726,6 @@ let [recipesResult, appointmentsResult] = await fetchUserRecords();
         
         const table = recordType === 'recipe' ? 'recipes' : 'appointments';
         
-        // AQUÍ ESTÁ EL CAMBIO PRINCIPAL: Usamos UPDATE en lugar de DELETE
         const { error } = await supabase
           .from(table)
           .update({ deleted_at: new Date().toISOString() })
@@ -744,16 +734,19 @@ let [recipesResult, appointmentsResult] = await fetchUserRecords();
         if (error) throw error;
       }
 
+      // 🌟 LÍNEA NUEVA: Hace que desaparezca de la pantalla al instante
+      setEvents(prev => prev.filter(e => String(e.rawId) !== String(recordId)));
+
       if (String(editingId) === String(recordId)) {
         setIsFormOpen(false);
         setEditingId(null);
       }
       
-      await fetchEvents(); // Recargamos para que desaparezca de la vista principal
+      await fetchEvents(); // Recargamos en segundo plano para mantener todo sincronizado
       
     } catch (err: any) {
       const message = String(err?.message || 'No se pudo eliminar el registro.');
-      console.error("Error al eliminar:", message); // Para que veas el error en la consola
+      console.error("Error al eliminar:", message);
       Alert.alert(
         /jwt expired|token expired/i.test(message) ? 'Sesión expirada' : 'Error al eliminar',
         message
@@ -763,6 +756,7 @@ let [recipesResult, appointmentsResult] = await fetchUserRecords();
     }
   };
 
+  
   const confirmDelete = (
     recordId: string,
     recordType: 'recipe' | 'appointment',
