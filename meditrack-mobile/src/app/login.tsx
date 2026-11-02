@@ -1,14 +1,20 @@
-import React, { useState } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { useState } from 'react';
 import {
-  Alert, StyleSheet, View, TextInput, TouchableOpacity,
-  Text, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Image
+  ActivityIndicator,
+  Alert,
+  Image,
+  KeyboardAvoidingView, Platform, ScrollView,
+  StyleSheet,
+  Text,
+  TextInput, TouchableOpacity,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { supabase } from '../lib/supabase';
-import { LocalAuth } from '../lib/storage';
 import { signInWithOAuth } from '../lib/oauth';
-import { Ionicons } from '@expo/vector-icons';
+import { LocalAuth } from '../lib/storage';
+import { supabase } from '../lib/supabase';
 
 export default function LoginScreen() {
   const router = useRouter();
