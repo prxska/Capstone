@@ -1,10 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Speech from 'expo-speech';
 import { useEffect } from 'react';
-import { Image, Modal, StyleSheet, Text, TouchableOpacity, Vibration, View } from 'react-native';
+import Animated, { FadeInRight, ZoomIn } from 'react-native-reanimated';
+import { Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, Vibration, View } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import type { AttentionAlertData } from '../lib/attentionAlerts';
 import { OWNER_PROFILE_ID } from '../lib/careProfiles';
+import { Pulse, ScaleButton } from './motion';
 import { formatDose, formatStock, getStockDaysLeft, LOW_STOCK_DAYS, parseDoseAmount } from '../lib/doseSchedule';
 
 const monthNames = [
@@ -33,14 +35,18 @@ function formatLongDate(dateKey: string) {
 
 type Props = {
   alert: AttentionAlertData | null;
+  // Lugar de esta alerta entre las que coincidieron (empieza en 1)
+  position: number;
+  total: number;
   // Registros cargados: se usan para mostrar la foto y el stock más recientes (las URL firmadas expiran)
   events: any[];
+  // Pasa a la siguiente alerta sin marcar esta
   onClose: () => void;
-  // "Ya lo tomé": descuenta la dosis del stock
+  // "Aceptar": descuenta la dosis del stock y pasa a la siguiente alerta
   onTaken: (alert: AttentionAlertData) => void;
 };
 
-export function AttentionAlertModal({ alert, events, onClose, onTaken }: Props) {
+export function AttentionAlertModal({ alert, position, total, events, onClose, onTaken }: Props) {
   const { isDarkMode, largeFont, voiceAlerts } = useTheme();
 
   const isMedication = alert?.kind === 'medication';
@@ -103,6 +109,7 @@ export function AttentionAlertModal({ alert, events, onClose, onTaken }: Props) 
   // Stock que quedará después de esta toma
   const stockAfter = stock == null ? null : Math.max(0, stock - parseDoseAmount(dose));
   const daysLeftAfter = stockAfter == null || !current ? null : getStockDaysLeft({ ...current, stock: stockAfter });
+  const hasNext = position < total;
   const accent = isMedication ? '#0284C7' : '#D97706';
   const textColor = isDarkMode ? '#F1F5F9' : '#102A43';
   const subColor = isDarkMode ? '#CBD5E1' : '#334155';
@@ -124,9 +131,11 @@ export function AttentionAlertModal({ alert, events, onClose, onTaken }: Props) 
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.backdrop}>
-        <View style={[styles.card, isDarkMode && { backgroundColor: '#1E293B' }]}>
+        <Animated.View entering={ZoomIn.springify().damping(16).stiffness(180)} style={[styles.card, isDarkMode && { backgroundColor: '#1E293B' }]}>
           <View style={[styles.header, { backgroundColor: accent }]}>
-            <Ionicons name={isMedication ? 'alarm' : 'calendar'} size={34} color="#FFF" />
+            <Pulse>
+              <Ionicons name={isMedication ? 'alarm' : 'calendar'} size={34} color="#FFF" />
+            </Pulse>
             <View style={{ flexShrink: 1 }}>
               {forWhom ? (
                 <Text style={[styles.forWhom, { fontSize: 18 + big }]}>Para {forWhom}</Text>
@@ -134,10 +143,16 @@ export function AttentionAlertModal({ alert, events, onClose, onTaken }: Props) 
               <Text style={[styles.headerText, { fontSize: 22 + big }]}>
                 {isMedication ? 'Hora del medicamento' : 'Mañana hay cita médica'}
               </Text>
+              {total > 1 ? (
+                <Text style={[styles.forWhom, { fontSize: 18 + big }]}>
+                  {isMedication ? 'Medicamento' : 'Aviso'} {position} de {total}
+                </Text>
+              ) : null}
             </View>
           </View>
 
-          <View style={styles.body}>
+          <ScrollView style={styles.scroll} contentContainerStyle={styles.body}>
+            <Animated.View key={position} entering={FadeInRight.duration(260)}>
             {photoUri ? (
               <Image source={{ uri: photoUri }} style={styles.photo} resizeMode="cover" />
             ) : null}
@@ -162,23 +177,32 @@ export function AttentionAlertModal({ alert, events, onClose, onTaken }: Props) 
               </View>
             ) : null}
 
-            <TouchableOpacity
+            {isMedication ? (
+              <Text style={[styles.hint, { color: subColor, fontSize: 17 + big }]}>
+                Toca Aceptar cuando lo hayas tomado.
+              </Text>
+            ) : null}
+
+            <ScaleButton
               style={[styles.button, { backgroundColor: accent }]}
               onPress={() => (isMedication ? onTaken(alert) : onClose())}
               accessibilityRole="button"
             >
               <Text style={[styles.buttonText, { fontSize: 20 + big }]}>
-                {isMedication ? 'Ya lo tomé' : 'Entendido'}
+                {isMedication ? (hasNext ? 'Aceptar y siguiente' : 'Aceptar') : hasNext ? 'Siguiente' : 'Entendido'}
               </Text>
-            </TouchableOpacity>
+            </ScaleButton>
 
             {isMedication ? (
               <TouchableOpacity style={styles.secondaryButton} onPress={onClose} accessibilityRole="button">
-                <Text style={[styles.secondaryButtonText, { color: subColor, fontSize: 18 + big }]}>Cerrar sin marcar</Text>
+                <Text style={[styles.secondaryButtonText, { color: subColor, fontSize: 18 + big }]}>
+                  {hasNext ? 'Omitir este medicamento' : 'Cerrar sin marcar'}
+                </Text>
               </TouchableOpacity>
             ) : null}
-          </View>
-        </View>
+            </Animated.View>
+          </ScrollView>
+        </Animated.View>
       </View>
     </Modal>
   );
@@ -191,10 +215,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 20,
   },
-  card: { backgroundColor: '#FFF', borderRadius: 24, overflow: 'hidden' },
+  card: { backgroundColor: '#FFF', borderRadius: 24, overflow: 'hidden', maxHeight: '100%' },
   header: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 20, paddingVertical: 18 },
   forWhom: { color: '#FFF', fontWeight: '700', opacity: 0.95 },
   headerText: { color: '#FFF', fontWeight: '800' },
+  scroll: { flexShrink: 1 },
   body: { padding: 22 },
   photo: { width: '100%', height: 180, borderRadius: 16, marginBottom: 16, backgroundColor: '#E2E8F0' },
   title: { fontWeight: '800', marginBottom: 12 },
@@ -210,6 +235,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   lowStockText: { color: '#92400E', fontWeight: '700', flexShrink: 1 },
+  hint: { fontWeight: '600', marginTop: 8 },
   button: { marginTop: 14, borderRadius: 14, paddingVertical: 16, alignItems: 'center' },
   buttonText: { color: '#FFF', fontWeight: '800' },
   secondaryButton: { marginTop: 6, paddingVertical: 12, alignItems: 'center' },

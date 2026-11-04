@@ -2,7 +2,9 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useState } from 'react';
 import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import Animated, { FadeInLeft, FadeInRight, LinearTransition, ZoomIn } from 'react-native-reanimated';
 import { useTheme } from '../context/ThemeContext';
+import { ScaleButton } from './motion';
 
 const TUTORIAL_SEEN_PREFIX = '@meditrack_tutorial_seen_';
 
@@ -42,7 +44,7 @@ const STEPS: { icon: keyof typeof Ionicons.glyphMap; color: string; title: strin
     icon: 'alarm',
     color: '#7C3AED',
     title: 'Alertas a la hora exacta',
-    text: 'Cuando sea hora de tu medicamento, sonará una alerta. Toca "Ya lo tomé" y, si anotaste cuántas tienes, te avisaremos cuando queden pocas.',
+    text: 'Cuando sea hora de tu medicamento, sonará una alerta. Toca "Aceptar" cuando lo hayas tomado y, si anotaste cuántas tienes, te avisaremos cuando queden pocas.',
   },
   {
     icon: 'people',
@@ -63,11 +65,18 @@ type Props = { visible: boolean; onClose: () => void };
 export function OnboardingTutorial({ visible, onClose }: Props) {
   const { isDarkMode, largeFont } = useTheme();
   const [step, setStep] = useState(0);
+  const [movingForward, setMovingForward] = useState(true);
   const current = STEPS[step];
   const isLast = step === STEPS.length - 1;
   const big = largeFont ? 4 : 0;
 
+  const goToStep = (next: number) => {
+    setMovingForward(next > step);
+    setStep(next);
+  };
+
   const close = () => {
+    setMovingForward(true);
     setStep(0);
     onClose();
   };
@@ -80,9 +89,14 @@ export function OnboardingTutorial({ visible, onClose }: Props) {
             <Text style={[styles.skipText, { fontSize: 18 + big }, isDarkMode && { color: '#CBD5E1' }]}>Saltar</Text>
           </TouchableOpacity>
 
-          <View style={[styles.iconCircle, { backgroundColor: current.color }]}>
+          <Animated.View
+            key={step}
+            entering={(movingForward ? FadeInRight : FadeInLeft).duration(280)}
+            style={styles.stepContent}
+          >
+          <Animated.View entering={ZoomIn.springify().damping(13)} style={[styles.iconCircle, { backgroundColor: current.color }]}>
             <Ionicons name={current.icon} size={56} color="#FFF" />
-          </View>
+          </Animated.View>
 
           <Text style={[styles.title, { fontSize: 26 + big }, isDarkMode && { color: '#F1F5F9' }]}>
             {current.title}
@@ -90,28 +104,29 @@ export function OnboardingTutorial({ visible, onClose }: Props) {
           <Text style={[styles.text, { fontSize: 19 + big, lineHeight: 28 + big }, isDarkMode && { color: '#CBD5E1' }]}>
             {current.text}
           </Text>
+          </Animated.View>
 
           <View style={styles.dots} accessibilityLabel={`Paso ${step + 1} de ${STEPS.length}`}>
             {STEPS.map((_, i) => (
-              <View key={i} style={[styles.dot, i === step && { backgroundColor: current.color, width: 24 }]} />
+              <Animated.View key={i} layout={LinearTransition.duration(220)} style={[styles.dot, i === step && { backgroundColor: current.color, width: 24 }]} />
             ))}
           </View>
 
           <View style={styles.actions}>
             {step > 0 ? (
-              <TouchableOpacity style={styles.backButton} onPress={() => setStep(step - 1)} accessibilityRole="button">
+              <TouchableOpacity style={styles.backButton} onPress={() => goToStep(step - 1)} accessibilityRole="button">
                 <Text style={[styles.backText, { fontSize: 19 + big }, isDarkMode && { color: '#7DD3FC' }]}>Atrás</Text>
               </TouchableOpacity>
             ) : (
               <View style={{ flex: 1 }} />
             )}
-            <TouchableOpacity
+            <ScaleButton
               style={[styles.nextButton, { backgroundColor: current.color }]}
-              onPress={() => (isLast ? close() : setStep(step + 1))}
+              onPress={() => (isLast ? close() : goToStep(step + 1))}
               accessibilityRole="button"
             >
               <Text style={[styles.nextText, { fontSize: 19 + big }]}>{isLast ? 'Comenzar' : 'Siguiente'}</Text>
-            </TouchableOpacity>
+            </ScaleButton>
           </View>
         </View>
       </View>
@@ -120,6 +135,7 @@ export function OnboardingTutorial({ visible, onClose }: Props) {
 }
 
 const styles = StyleSheet.create({
+  stepContent: { alignSelf: 'stretch', alignItems: 'center' },
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', padding: 20 },
   card: { backgroundColor: '#FFF', borderRadius: 24, padding: 24, paddingTop: 16, alignItems: 'center' },
   skip: { alignSelf: 'flex-end', paddingVertical: 10, paddingHorizontal: 6, minHeight: 48, justifyContent: 'center' },

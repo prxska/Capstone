@@ -19,9 +19,11 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import Animated, { FadeIn, FadeInDown, FadeInLeft, FadeInRight, FadeOut, FadeOutLeft, LinearTransition } from 'react-native-reanimated';
 import Swipeable, { type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AttentionAlertModal } from '../components/AttentionAlertModal';
+import { Bob, ScaleButton } from '../components/motion';
 import { OnboardingTutorial, markTutorialSeen, shouldShowTutorial } from '../components/OnboardingTutorial';
 import { useTheme } from '../context/ThemeContext';
 import { listenForAttentionAlerts, syncAttentionAlerts, type AttentionAlertData } from '../lib/attentionAlerts';
@@ -199,6 +201,37 @@ function buildCalendarDays(year: number, month: number) {
   });
 }
 
+function MinuteInput({
+  value,
+  onChange,
+  isDarkMode,
+}: {
+  value: string;
+  onChange: (minutes: string) => void;
+  isDarkMode: boolean;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+
+  return (
+    <TextInput
+      style={[styles.stepperNumber, styles.minuteInput, isDarkMode && { color: '#F1F5F9' }]}
+      value={draft ?? value}
+      keyboardType="number-pad"
+      maxLength={2}
+      selectTextOnFocus
+      accessibilityLabel="Minutos"
+      onFocus={() => setDraft(value)}
+      onBlur={() => setDraft(null)}
+      onChangeText={(text) => {
+        const digits = text.replace(/D/g, '');
+        const minutes = Number(digits) > 59 ? '59' : digits;
+        setDraft(minutes);
+        if (minutes) onChange(minutes.padStart(2, '0'));
+      }}
+    />
+  );
+}
+
 export default function App() {
   const router = useRouter();
   const { isDarkMode, largeFont } = useTheme();
@@ -232,11 +265,22 @@ export default function App() {
   const [recipeStep, setRecipeStep] = useState(0);
 
   const RECIPE_STEP_TITLES = ['Medicamento', 'Horario', 'Duración'];
-  const goToNextRecipeStep = () => setRecipeStep((s) => Math.min(s + 1, RECIPE_STEP_TITLES.length - 1));
-  const goToPrevRecipeStep = () => setRecipeStep((s) => Math.max(s - 1, 0));
+  const [stepMovingForward, setStepMovingForward] = useState(true);
+  const stepEntering = (stepMovingForward ? FadeInRight : FadeInLeft).duration(240);
+  const goToNextRecipeStep = () => {
+    setStepMovingForward(true);
+    setRecipeStep((s) => Math.min(s + 1, RECIPE_STEP_TITLES.length - 1));
+  };
+  const goToPrevRecipeStep = () => {
+    setStepMovingForward(false);
+    setRecipeStep((s) => Math.max(s - 1, 0));
+  };
 
   const [dayDetailKey, setDayDetailKey] = useState<string | null>(null);
-  const [activeAlert, setActiveAlert] = useState<AttentionAlertData | null>(null);
+  // Alertas que coincidieron: se muestran de a una
+  const [alertQueue, setAlertQueue] = useState<{ items: AttentionAlertData[]; index: number }>({ items: [], index: 0 });
+  const activeAlert = alertQueue.items[alertQueue.index] ?? null;
+  const stockUpdatesRef = useRef<Promise<void>>(Promise.resolve());
   const [showTutorial, setShowTutorial] = useState(false);
   const tutorialKeyRef = useRef('guest');
   const eventsRef = useRef<any[]>([]);
@@ -505,8 +549,19 @@ export default function App() {
     eventsRef.current = events;
   }, [events]);
 
-  const handleDoseTaken = async (alert: AttentionAlertData) => {
-    setActiveAlert(null);
+  const enqueueAlerts = useCallback((alerts: AttentionAlertData[]) => {
+    const alertKey = (a: AttentionAlertData) => `${a.kind}-${a.eventId}-${a.date}-${a.time}`;
+    setAlertQueue((prev) => {
+      const known = new Set(prev.items.map(alertKey));
+      return { ...prev, items: [...prev.items, ...alerts.filter((a) => !known.has(alertKey(a)))] };
+    });
+  }, []);
+
+  const showNextAlert = () => {
+    setAlertQueue((prev) => (prev.index + 1 < prev.items.length ? { ...prev, index: prev.index + 1 } : { items: [], index: 0 }));
+  };
+
+  const updateStockAfterDose = async (alert: AttentionAlertData) => {
     const recipe = eventsRef.current.find((e) => e.id === alert.eventId);
     if (!recipe || recipe.stock == null) return;
 
@@ -529,7 +584,13 @@ export default function App() {
     }
   };
 
-  useEffect(() => listenForAttentionAlerts(setActiveAlert), []);
+  const handleDoseTaken = (alert: AttentionAlertData) => {
+    showNextAlert();
+    // De a una: si se aceptan varias seguidas no deben pisarse al guardar
+    stockUpdatesRef.current = stockUpdatesRef.current.then(() => updateStockAfterDose(alert));
+  };
+
+  useEffect(() => listenForAttentionAlerts(enqueueAlerts), [enqueueAlerts]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {
@@ -566,8 +627,7 @@ export default function App() {
       if (nextH < 0) nextH = 23;
       handleRecipeChange('startTime', `${String(nextH).padStart(2, '0')}:${String(currentM).padStart(2, '0')}`);
     } else {
-      let nextM = (currentM + amount) % 60;
-      if (nextM < 0) nextM = 45;
+      const nextM = (currentM + amount + 60) % 60;
       handleRecipeChange('startTime', `${String(currentH).padStart(2, '0')}:${String(nextM).padStart(2, '0')}`);
     }
   };
@@ -585,8 +645,7 @@ export default function App() {
       if (nextH < 0) nextH = 23;
       handleAppointmentChange('time', `${String(nextH).padStart(2, '0')}:${String(currentM).padStart(2, '0')}`);
     } else {
-      let nextM = (currentM + amount) % 60;
-      if (nextM < 0) nextM = 45;
+      const nextM = (currentM + amount + 60) % 60;
       handleAppointmentChange('time', `${String(currentH).padStart(2, '0')}:${String(nextM).padStart(2, '0')}`);
     }
   };
@@ -1037,18 +1096,18 @@ export default function App() {
         </View>
 
         <View style={styles.topbarActions}>
-          <TouchableOpacity style={styles.primaryButton} onPress={() => openModal('recipe')}>
+          <ScaleButton style={styles.primaryButton} onPress={() => openModal('recipe')}>
             <Ionicons name="medical" size={18} color="#FFF" style={{ marginRight: 6 }} />
             <Text style={styles.primaryButtonText}>+ Receta</Text>
-          </TouchableOpacity>
+          </ScaleButton>
 
-          <TouchableOpacity
+          <ScaleButton
             style={styles.appointmentButton}
             onPress={() => openModal('appointment')}
           >
             <Ionicons name="calendar" size={18} color="#FFF" style={{ marginRight: 6 }} />
             <Text style={styles.appointmentButtonText}>+ Cita Médica</Text>
-          </TouchableOpacity>
+          </ScaleButton>
         </View>
       </View>
 
@@ -1112,8 +1171,8 @@ export default function App() {
           </ScrollView>
 
           {lowStockRecipes.map((recipe) => (
+            <Animated.View key={`stock-${recipe.id}`} entering={FadeInDown.duration(300)} exiting={FadeOut.duration(150)}>
             <TouchableOpacity
-              key={`stock-${recipe.id}`}
               style={styles.lowStockBanner}
               onPress={() => handleEditEvent(recipe)}
               accessibilityLabel={`Quedan pocas de ${recipe.medication}. Toca para actualizar la cantidad`}
@@ -1131,6 +1190,7 @@ export default function App() {
               </View>
               <Ionicons name="chevron-forward" size={22} color="#B45309" />
             </TouchableOpacity>
+            </Animated.View>
           ))}
 
           <View style={[styles.calendarPanel, isDarkMode && { backgroundColor: '#1E293B' }]}>
@@ -1159,7 +1219,7 @@ export default function App() {
             {loading ? (
               <ActivityIndicator size="large" color="#36B9CC" style={{ paddingVertical: 20 }} />
             ) : (
-              <View style={styles.calendarGrid}>
+              <Animated.View key={monthLabel} entering={FadeIn.duration(250)} style={styles.calendarGrid}>
                 {weekDays.map((day) => (
                   <View key={day} style={styles.weekdayCell}>
                     <Text style={[styles.weekdayText, isDarkMode && { color: '#CBD5E1' }]}>
@@ -1246,7 +1306,7 @@ export default function App() {
                     </TouchableOpacity>
                   );
                 })}
-              </View>
+              </Animated.View>
             )}
           </View>
 
@@ -1262,11 +1322,16 @@ export default function App() {
                 No hay registros próximos.
               </Text>
             )}
-            {upcomingEvents.slice(0, 8).map((event) => {
+            {upcomingEvents.slice(0, 8).map((event, index) => {
               const isAppointment = event.type === 'appointment';
               return (
-                <Swipeable
+                <Animated.View
                   key={event.id}
+                  entering={FadeInDown.delay(index * 50).duration(300)}
+                  exiting={FadeOutLeft.duration(200)}
+                  layout={LinearTransition.duration(220)}
+                >
+                <Swipeable
                   friction={2}
                   rightThreshold={40}
                   overshootRight={false}
@@ -1344,6 +1409,7 @@ export default function App() {
                   </TouchableOpacity>
                 </TouchableOpacity>
                 </Swipeable>
+                </Animated.View>
               );
             })}
           </View>
@@ -1352,7 +1418,9 @@ export default function App() {
         {showScrollPrompt && (
           <View pointerEvents="none" style={styles.floatingPromptContainer}>
             <View style={[styles.floatingPromptPill, isDarkMode && styles.floatingPromptDark]}>
-              <Ionicons name="arrow-down-circle" size={22} color="#FFF" />
+              <Bob>
+                <Ionicons name="arrow-down-circle" size={22} color="#FFF" />
+              </Bob>
               <Text style={styles.floatingPromptText}>
                 Baja para ver más atenciones
               </Text>
@@ -1414,7 +1482,7 @@ export default function App() {
                       </Text>
 
                       {recipeStep === 0 && (
-                        <>
+                        <Animated.View entering={stepEntering}>
                           <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Paciente</Text>
                           <View style={[styles.readOnlyUserBox, isDarkMode && styles.darkReadOnlyBox]}>
                             <Ionicons
@@ -1536,11 +1604,11 @@ export default function App() {
                             value={recipeForm.stock}
                             onChangeText={(value) => handleRecipeChange('stock', value)}
                           />
-                        </>
+                        </Animated.View>
                       )}
 
                       {recipeStep === 1 && (
-                        <>
+                        <Animated.View entering={stepEntering}>
                           <Text style={[styles.miniSubLabel, isDarkMode && styles.darkSubtext, { marginTop: 4 }]}>
                             Elige un horario habitual:
                           </Text>
@@ -1605,19 +1673,25 @@ export default function App() {
                               <View style={styles.stepperRow}>
                                 <TouchableOpacity
                                   style={[styles.stepperBtn, isDarkMode && styles.darkStepperBtn]}
-                                  onPress={() => adjustRecipeTime('minute', -15)}
+                                  onPress={() => adjustRecipeTime('minute', -1)}
+                                  accessibilityLabel="Restar un minuto"
                                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                                 >
                                   <Ionicons name="remove" size={20} color={isDarkMode ? '#38BDF8' : '#0284C7'} />
                                 </TouchableOpacity>
 
-                                <Text style={[styles.stepperNumber, isDarkMode && { color: '#F1F5F9' }]}>
-                                  {(recipeForm.startTime || '08:00').split(':')[1]}
-                                </Text>
+                                <MinuteInput
+                                  value={(recipeForm.startTime || '08:00').split(':')[1]}
+                                  onChange={(mm) =>
+                                    handleRecipeChange('startTime', `${(recipeForm.startTime || '08:00').split(':')[0]}:${mm}`)
+                                  }
+                                  isDarkMode={isDarkMode}
+                                />
 
                                 <TouchableOpacity
                                   style={[styles.stepperBtn, isDarkMode && styles.darkStepperBtn]}
-                                  onPress={() => adjustRecipeTime('minute', 15)}
+                                  onPress={() => adjustRecipeTime('minute', 1)}
+                                  accessibilityLabel="Sumar un minuto"
                                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                                 >
                                   <Ionicons name="add" size={20} color={isDarkMode ? '#38BDF8' : '#0284C7'} />
@@ -1717,11 +1791,11 @@ export default function App() {
                               Tomas al día: {calculateDoseTimes(recipeForm.startTime, selectedInterval).join('  •  ')}
                             </Text>
                           </View>
-                        </>
+                        </Animated.View>
                       )}
 
                       {recipeStep === 2 && (
-                        <>
+                        <Animated.View entering={stepEntering}>
                           <TouchableOpacity
                             style={[
                               styles.chronicToggleCard,
@@ -1814,7 +1888,7 @@ export default function App() {
                               </View>
                             )}
                           </View>
-                        </>
+                        </Animated.View>
                       )}
 
                       <View style={styles.stepNavRow}>
@@ -1829,13 +1903,13 @@ export default function App() {
                         )}
 
                         {recipeStep < RECIPE_STEP_TITLES.length - 1 && (
-                          <TouchableOpacity
+                          <ScaleButton
                             style={styles.nextStepButton}
                             onPress={goToNextRecipeStep}
                           >
                             <Text style={styles.nextStepButtonText}>Siguiente</Text>
                             <Ionicons name="arrow-forward" size={18} color="#FFF" />
-                          </TouchableOpacity>
+                          </ScaleButton>
                         )}
                       </View>
                     </>
@@ -1903,19 +1977,25 @@ export default function App() {
                           <View style={styles.stepperRow}>
                             <TouchableOpacity
                               style={[styles.stepperBtn, isDarkMode && styles.darkStepperBtn]}
-                              onPress={() => adjustAppointmentTime('minute', -15)}
+                              onPress={() => adjustAppointmentTime('minute', -1)}
+                              accessibilityLabel="Restar un minuto"
                               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                             >
                               <Ionicons name="remove" size={20} color="#D97706" />
                             </TouchableOpacity>
 
-                            <Text style={[styles.stepperNumber, isDarkMode && { color: '#F1F5F9' }]}>
-                              {(appointmentForm.time || '10:00').split(':')[1]}
-                            </Text>
+                            <MinuteInput
+                              value={(appointmentForm.time || '10:00').split(':')[1]}
+                              onChange={(mm) =>
+                                handleAppointmentChange('time', `${(appointmentForm.time || '10:00').split(':')[0]}:${mm}`)
+                              }
+                              isDarkMode={isDarkMode}
+                            />
 
                             <TouchableOpacity
                               style={[styles.stepperBtn, isDarkMode && styles.darkStepperBtn]}
-                              onPress={() => adjustAppointmentTime('minute', 15)}
+                              onPress={() => adjustAppointmentTime('minute', 1)}
+                              accessibilityLabel="Sumar un minuto"
                               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                             >
                               <Ionicons name="add" size={20} color="#D97706" />
@@ -1946,7 +2026,7 @@ export default function App() {
                   )}
 
                   {(formType === 'appointment' || recipeStep === RECIPE_STEP_TITLES.length - 1) && (
-                    <TouchableOpacity
+                    <ScaleButton
                       style={[
                         styles.submitButton,
                         formType === 'appointment' && { backgroundColor: '#D97706' }
@@ -1963,7 +2043,7 @@ export default function App() {
                             : (isGuest ? 'Guardar en Teléfono' : 'Guardar en Supabase')}
                         </Text>
                       )}
-                    </TouchableOpacity>
+                    </ScaleButton>
                   )}
 
                   {editingId && (formType === 'appointment' || recipeStep === RECIPE_STEP_TITLES.length - 1) && (
@@ -2144,8 +2224,10 @@ export default function App() {
 
       <AttentionAlertModal
         alert={activeAlert}
+        position={alertQueue.index + 1}
+        total={alertQueue.items.length}
         events={events}
-        onClose={() => setActiveAlert(null)}
+        onClose={showNextAlert}
         onTaken={handleDoseTaken}
       />
     </SafeAreaView>
@@ -2745,6 +2827,9 @@ const styles = StyleSheet.create({
     color: '#0F172A',
     minWidth: 32,
     textAlign: 'center',
+  },
+  minuteInput: {
+    padding: 0,
   },
   timeSeparator: {
     fontSize: 24,

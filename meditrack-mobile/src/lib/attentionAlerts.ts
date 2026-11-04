@@ -2,6 +2,7 @@ import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { requireOptionalNativeModule } from 'expo';
 import { Platform } from 'react-native';
 import { calculateDoseTimes, formatDose, getIntervalHours } from './doseSchedule';
+import { e2eHooks } from './e2eHooks';
 
 // expo-notifications no funciona completo en Expo Go (Android, SDK 53+): ahí no se programan alertas
 const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
@@ -48,6 +49,18 @@ function toLocalDate(dateKey: string, time: string) {
 
 function toDateKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+// Los medicamentos de una misma hora comparten una sola notificación
+function groupByMoment(alerts: { triggerAt: Date; data: AttentionAlertData }[]) {
+  const groups = new Map<string, { triggerAt: Date; alerts: AttentionAlertData[] }>();
+  for (const { triggerAt, data } of alerts) {
+    const key = data.kind === 'medication' ? `medication-${triggerAt.getTime()}` : `appointment-${data.eventId}`;
+    const group = groups.get(key);
+    if (group) group.alerts.push(data);
+    else groups.set(key, { triggerAt, alerts: [data] });
+  }
+  return [...groups.values()];
 }
 
 function buildUpcomingAlerts(events: any[], now: Date) {
@@ -103,7 +116,7 @@ function buildUpcomingAlerts(events: any[], now: Date) {
     }
   }
 
-  return alerts.sort((a, b) => a.triggerAt.getTime() - b.triggerAt.getTime()).slice(0, MAX_SCHEDULED);
+  return groupByMoment(alerts.sort((a, b) => a.triggerAt.getTime() - b.triggerAt.getTime())).slice(0, MAX_SCHEDULED);
 }
 
 export function configureAttentionAlerts() {
@@ -163,23 +176,29 @@ let syncQueue: Promise<void> = Promise.resolve();
  */
 export function syncAttentionAlerts(events: any[]) {
   syncQueue = syncQueue.then(async () => {
+    if (e2eHooks) e2eHooks.scheduled = buildUpcomingAlerts(events, new Date());
     if (!Notifications) return;
     try {
       await Notifications.cancelAllScheduledNotificationsAsync();
       if (events.length === 0 || !(await ensurePermission())) return;
 
-      for (const { triggerAt, data } of buildUpcomingAlerts(events, new Date())) {
+      for (const { triggerAt, alerts } of buildUpcomingAlerts(events, new Date())) {
+        const data = alerts[0];
         const isMedication = data.kind === 'medication';
         const forWhom = data.profileId && data.profileId !== 'owner' && data.patient ? `${data.patient}: ` : '';
         await Notifications.scheduleNotificationAsync({
           content: {
-            title: isMedication
+            title: alerts.length > 1
+              ? `💊 Hora de tomar ${alerts.length} medicamentos`
+              : isMedication
               ? `💊 ${forWhom}hora de tomar ${data.title}`
               : `📅 ${forWhom}mañana hay una cita médica`,
-            body: isMedication
+            body: alerts.length > 1
+              ? `${alerts.map((a) => a.title).join(', ')} · ${data.time}`
+              : isMedication
               ? `${formatDose(data.dose || '') || 'Tu dosis'} · ${data.time}`
               : `${data.title} · ${data.time}${data.location ? ` · ${data.location}` : ''}`,
-            data,
+            data: { alerts },
             sound: HAS_ALARM_SOUND ? ALARM_SOUND : true,
             vibrate: VIBRATION_PATTERN,
             priority: Notifications.AndroidNotificationPriority.MAX,
@@ -206,16 +225,19 @@ export function cancelAttentionAlerts() {
  * Avisa cuando llega una alerta con la app abierta o cuando la persona toca la notificación
  * (también si la app estaba cerrada). Devuelve la función para dejar de escuchar.
  */
-export function listenForAttentionAlerts(onAlert: (data: AttentionAlertData) => void) {
+export function listenForAttentionAlerts(onAlerts: (alerts: AttentionAlertData[]) => void) {
+  if (e2eHooks) e2eHooks.fireAlerts = onAlerts;
   if (!Notifications) return () => {};
 
   const shown = new Set<string>();
   const handle = (notification: import('expo-notifications').Notification) => {
     const id = notification.request.identifier;
-    const data = notification.request.content.data as unknown as AttentionAlertData;
-    if (shown.has(id) || !data?.kind) return;
+    const data = notification.request.content.data as any;
+    // Las notificaciones programadas antes de agrupar traen una sola alerta
+    const alerts: AttentionAlertData[] = data?.alerts ?? (data?.kind ? [data] : []);
+    if (shown.has(id) || alerts.length === 0) return;
     shown.add(id);
-    onAlert(data);
+    onAlerts(alerts);
   };
 
   const received = Notifications.addNotificationReceivedListener(handle);

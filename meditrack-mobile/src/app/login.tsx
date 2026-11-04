@@ -11,7 +11,10 @@ import {
   TextInput, TouchableOpacity,
   View
 } from 'react-native';
+import Animated, { FadeIn, FadeInDown, FadeInUp, FadeOut, ZoomIn } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { AppDialog } from '../components/AppDialog';
+import { ScaleButton } from '../components/motion';
 import { signInWithOAuth } from '../lib/oauth';
 import { LocalAuth } from '../lib/storage';
 import { supabase } from '../lib/supabase';
@@ -27,6 +30,7 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [isLogin, setIsLogin] = useState(true);
+  const [existingAccountEmail, setExistingAccountEmail] = useState<string | null>(null);
 
   function resetForm() {
     setEmail('');
@@ -114,7 +118,7 @@ export default function LoginScreen() {
         router.replace('/');
       }
     } else {
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email: email.trim(),
         password,
         options: {
@@ -124,7 +128,15 @@ export default function LoginScreen() {
         },
       });
 
-      if (error) {
+      // Con la confirmación por correo activa, Supabase no da error: devuelve un usuario sin identidades
+      const accountExists =
+        error?.code === 'user_already_exists' ||
+        /already (registered|exists)/i.test(error?.message || '') ||
+        (!error && data.user?.identities?.length === 0);
+
+      if (accountExists) {
+        setExistingAccountEmail(email.trim());
+      } else if (error) {
         Alert.alert('Error en el registro', error.message);
       } else {
         Alert.alert('¡Cuenta creada!', 'Tu registro fue exitoso. Ya puedes iniciar sesión.');
@@ -135,6 +147,19 @@ export default function LoginScreen() {
 
     setLoading(false);
   }
+
+  const goToLoginWithExistingAccount = () => {
+    const existing = existingAccountEmail ?? '';
+    setExistingAccountEmail(null);
+    resetForm();
+    setEmail(existing);
+    setIsLogin(true);
+  };
+
+  const useAnotherEmail = () => {
+    setExistingAccountEmail(null);
+    setEmail('');
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -147,17 +172,19 @@ export default function LoginScreen() {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          <View style={styles.brandWrap}>
-            <Image
-              source={require('../images/Logo para App Meditrack.png')}
-              style={styles.brandMarkImage}
-              resizeMode="contain"
-            />
+          <Animated.View entering={FadeInDown.duration(400)} style={styles.brandWrap}>
+            <Animated.View entering={ZoomIn.springify().damping(14)}>
+              <Image
+                source={require('../images/Logo para App Meditrack.png')}
+                style={styles.brandMarkImage}
+                resizeMode="contain"
+              />
+            </Animated.View>
 
             {!isLogin && (
-              <View style={styles.badge}>
+              <Animated.View entering={FadeIn.duration(250)} style={styles.badge}>
                 <Text style={styles.badgeText}>NUEVO PACIENTE</Text>
-              </View>
+              </Animated.View>
             )}
 
             <Text style={styles.title}>
@@ -168,11 +195,11 @@ export default function LoginScreen() {
                 ? 'Ingresa tus credenciales para acceder'
                 : 'Completa tus datos para registrar tu historial clínico'}
             </Text>
-          </View>
+          </Animated.View>
 
-          <View style={styles.formCard}>
+          <Animated.View entering={FadeInUp.delay(100).duration(400)} style={styles.formCard}>
             {!isLogin && (
-              <>
+              <Animated.View entering={FadeInDown.duration(250)} exiting={FadeOut.duration(120)}>
                 <Text style={styles.label}>Nombre completo</Text>
                 <View style={styles.inputContainer}>
                   <Ionicons name="person-outline" size={20} color="#6B8E9B" style={styles.iconLeft} />
@@ -185,7 +212,7 @@ export default function LoginScreen() {
                     autoCapitalize="words"
                   />
                 </View>
-              </>
+              </Animated.View>
             )}
 
             <Text style={styles.label}>Correo electrónico</Text>
@@ -228,7 +255,7 @@ export default function LoginScreen() {
             </View>
 
             {!isLogin && (
-              <>
+              <Animated.View entering={FadeInDown.duration(250)} exiting={FadeOut.duration(120)}>
                 <Text style={styles.label}>Confirmar contraseña</Text>
                 <View style={styles.inputContainer}>
                   <Ionicons name="shield-checkmark-outline" size={20} color="#6B8E9B" style={styles.iconLeft} />
@@ -253,10 +280,10 @@ export default function LoginScreen() {
                     />
                   </TouchableOpacity>
                 </View>
-              </>
+              </Animated.View>
             )}
 
-            <TouchableOpacity
+            <ScaleButton
               style={[styles.primaryButton, !isLogin && styles.primaryButtonRegister]}
               onPress={handleAuth}
               disabled={loading || googleLoading}
@@ -269,7 +296,7 @@ export default function LoginScreen() {
                   {isLogin ? 'Iniciar Sesión' : 'Registrar Paciente'}
                 </Text>
               )}
-            </TouchableOpacity>
+            </ScaleButton>
 
             <TouchableOpacity
               style={styles.switchButton}
@@ -291,7 +318,7 @@ export default function LoginScreen() {
               <View style={styles.dividerLine} />
             </View>
 
-            <TouchableOpacity
+            <ScaleButton
               style={styles.googleButton}
               onPress={handleGoogleSignIn}
               disabled={loading || googleLoading}
@@ -307,9 +334,9 @@ export default function LoginScreen() {
                   <Text style={styles.googleButtonText}>Continuar con Google</Text>
                 </>
               )}
-            </TouchableOpacity>
+            </ScaleButton>
 
-            <TouchableOpacity
+            <ScaleButton
               style={styles.guestButton}
               onPress={handleGuestMode}
               disabled={loading || googleLoading}
@@ -317,10 +344,25 @@ export default function LoginScreen() {
             >
               <Ionicons name="phone-portrait-outline" size={20} color="#0369A1" style={{ marginRight: 8 }} />
               <Text style={styles.guestButtonText}>Continuar sin cuenta (Modo Local)</Text>
-            </TouchableOpacity>
-          </View>
+            </ScaleButton>
+          </Animated.View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {existingAccountEmail && (
+        <AppDialog
+          icon="person-circle"
+          color="#0284C7"
+          title="Esta cuenta ya existe"
+          primaryLabel="Iniciar sesión"
+          onPrimary={goToLoginWithExistingAccount}
+          secondaryLabel="Usar otro correo"
+          onSecondary={useAnotherEmail}
+        >
+          Ya hay una cuenta registrada con{' '}
+          <Text style={{ fontWeight: '800' }}>{existingAccountEmail}</Text>. Inicia sesión con ella o usa otro correo.
+        </AppDialog>
+      )}
     </SafeAreaView>
   );
 }

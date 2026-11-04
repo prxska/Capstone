@@ -16,6 +16,7 @@ import {
   Text, TouchableOpacity,
   View
 } from 'react-native';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { resetTutorial } from '../components/OnboardingTutorial';
 import { ProfilesManager } from '../components/ProfilesManager';
@@ -177,6 +178,7 @@ export default function ProfileScreen() {
           onScroll={handleScroll}
           scrollEventThrottle={16}
         >
+          <Animated.View entering={FadeInDown.duration(350)}>
           {/* Tarjeta de usuario */}
           <View style={[styles.userCard, isDarkMode && styles.darkCard]}>
             <View style={[styles.avatarCircle, isDarkMode && { backgroundColor: '#334155' }]}>
@@ -234,6 +236,9 @@ export default function ProfileScreen() {
             )}
           </View>
 
+          </Animated.View>
+
+          <Animated.View entering={FadeInDown.delay(100).duration(350)}>
           {/* Sección Preferencias de Accesibilidad */}
           <Text style={[
             styles.sectionTitle,
@@ -391,6 +396,7 @@ export default function ProfileScreen() {
               {isGuest ? 'Salir del Modo Local' : 'Cerrar Sesión'}
             </Text>
           </TouchableOpacity>
+          </Animated.View>
         </ScrollView>
 
         {/* Indicador inferior flotante accesible para saber que hay contenido abajo */}

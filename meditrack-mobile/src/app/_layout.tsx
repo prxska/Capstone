@@ -84,9 +84,9 @@ function RootNavigation() {
     <>
       <StatusBar style={isDarkMode ? 'light' : 'dark'} />
       <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="index" />
-        <Stack.Screen name="login" />
-        <Stack.Screen name="profile" />
+        <Stack.Screen name="index" options={{ animation: 'fade' }} />
+        <Stack.Screen name="login" options={{ animation: 'fade' }} />
+        <Stack.Screen name="profile" options={{ animation: 'slide_from_right' }} />
       </Stack>
     </>
   );
