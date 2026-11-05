@@ -48,6 +48,7 @@ test.describe('Citas médicas', () => {
 
   test('el calendario abre el detalle del día', async ({ guest }) => {
     await createAppointment(guest, { doctor: 'Dra. Vega' });
+    await guest.getByText('Ver el mes completo').click();
     await guest.getByLabel(/, 1 registros$/).first().click();
     await expect(guest.getByLabel('Cerrar')).toBeVisible();
     await expect(guest.getByText('Cita: Dra. Vega').last()).toBeVisible();

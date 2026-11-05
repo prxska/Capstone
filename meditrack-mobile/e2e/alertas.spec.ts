@@ -32,16 +32,16 @@ test.describe('Alertas de medicamentos', () => {
     await fireAlerts(guest, alerts);
 
     await expect(guest.getByText('Medicamento 1 de 3')).toBeVisible();
-    await expect(guest.getByText(alerts[0].medication, { exact: true })).toBeVisible();
-    await guest.getByText('Aceptar y siguiente').click();
+    await expect(guest.getByText(alerts[0].medication, { exact: true }).last()).toBeVisible();
+    await guest.getByText('Ya me la tomé · Siguiente').click();
 
     await expect(guest.getByText('Medicamento 2 de 3')).toBeVisible();
-    await expect(guest.getByText(alerts[1].medication, { exact: true })).toBeVisible();
+    await expect(guest.getByText(alerts[1].medication, { exact: true }).last()).toBeVisible();
     await guest.getByText('Omitir este medicamento').click();
 
     await expect(guest.getByText('Medicamento 3 de 3')).toBeVisible();
     await expect(guest.getByText('Cerrar sin marcar')).toBeVisible();
-    await guest.getByText('Aceptar', { exact: true }).click();
+    await guest.getByText('Ya me la tomé', { exact: true }).last().click();
     await expect(guest.getByText('Hora del medicamento')).toBeHidden();
 
     await expect.poll(() => stockOf(guest, alerts[0].medication)).toBe(29);
@@ -57,8 +57,8 @@ test.describe('Alertas de medicamentos', () => {
     const [{ alerts }] = await readScheduled(guest);
     await fireAlerts(guest, alerts);
 
-    await guest.getByText('Aceptar y siguiente').click();
-    await guest.getByText('Aceptar', { exact: true }).click();
+    await guest.getByText('Ya me la tomé · Siguiente').click();
+    await guest.getByText('Ya me la tomé', { exact: true }).last().click();
 
     await expect.poll(() => stockOf(guest, 'Uno')).toBe(9);
     await expect.poll(() => stockOf(guest, 'Dos')).toBe(9);
@@ -74,15 +74,15 @@ test.describe('Alertas de medicamentos', () => {
     const segundo = groups.find((g) => g.alerts[0].medication === 'Segundo')!;
 
     await fireAlerts(guest, primero.alerts);
-    await expect(guest.getByText('Primero', { exact: true })).toBeVisible();
+    await expect(guest.getByText('Primero', { exact: true }).last()).toBeVisible();
     await expect(guest.getByText(/^Medicamento \d de \d$/)).toBeHidden();
 
     await fireAlerts(guest, segundo.alerts);
     await expect(guest.getByText('Medicamento 1 de 2')).toBeVisible();
-    await expect(guest.getByText('Primero', { exact: true })).toBeVisible();
+    await expect(guest.getByText('Primero', { exact: true }).last()).toBeVisible();
 
-    await guest.getByText('Aceptar y siguiente').click();
-    await expect(guest.getByText('Segundo', { exact: true })).toBeVisible();
+    await guest.getByText('Ya me la tomé · Siguiente').click();
+    await expect(guest.getByText('Segundo', { exact: true }).last()).toBeVisible();
   });
 
   test('un solo medicamento no muestra contador', async ({ guest }) => {

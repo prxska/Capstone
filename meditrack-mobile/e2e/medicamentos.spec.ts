@@ -41,6 +41,9 @@ test.describe('Medicamentos', () => {
 
     const minutes = guest.getByLabel('Minutos');
     await expect(minutes).toHaveValue('00');
+    await expect(guest.getByText('Paso 2 de 3')).toBeInViewport();
+    await expect(guest.getByLabel('Sumar un minuto')).toBeInViewport({ ratio: 1 });
+    await expect(guest.getByLabel('Restar un minuto')).toBeInViewport({ ratio: 1 });
 
     await guest.getByLabel('Sumar un minuto').click();
     await expect(minutes).toHaveValue('01');
@@ -54,6 +57,11 @@ test.describe('Medicamentos', () => {
 
     await minutes.fill('75');
     await expect(minutes).toHaveValue('59');
+
+    await minutes.fill('a7');
+    await expect(minutes).toHaveValue('7');
+    await minutes.blur();
+    await expect(minutes).toHaveValue('07');
 
     await minutes.fill('37');
     await guest.getByText('Siguiente', { exact: true }).click();
@@ -96,6 +104,32 @@ test.describe('Medicamentos', () => {
     await guest.getByText('Ver historial de medicamentos').click();
     await expect(guest.getByText(/Omeprazol/).first()).toBeVisible();
     await expect(guest.getByText(/^Eliminado el:/)).toBeVisible();
+  });
+
+  test('el historial muestra la foto solo de los medicamentos que tienen', async ({ guest }) => {
+    const pixel = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    await guest.evaluate((photo) => {
+      const base = { dose: '1 comp', frequency: 'Cada 8 hrs', patient: 'Ana', deleted_at: new Date().toISOString() };
+      localStorage.setItem(
+        '@meditrack_local_recipes',
+        JSON.stringify([
+          { ...base, id: '1', medication: 'Con foto', photoUri: photo },
+          { ...base, id: '2', medication: 'Sin foto' },
+        ])
+      );
+    }, pixel);
+
+    await guest.goto('/profile');
+    await guest.getByText('Ver historial de medicamentos').click();
+    await expect(guest.getByText('Sin foto')).toBeVisible();
+
+    const photo = guest.getByRole('img', { name: 'Foto de Con foto' }).first();
+    await expect(photo).toBeVisible();
+    await expect(guest.getByRole('img', { name: 'Foto de Sin foto' })).toHaveCount(0);
+
+    // A la derecha del texto
+    const name = (await guest.getByText('Con foto').boundingBox())!;
+    expect((await photo.boundingBox())!.x).toBeGreaterThan(name.x + name.width);
   });
 
   test('avisa cuando quedan pocas', async ({ guest }) => {
