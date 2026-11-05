@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Animated, { FadeInUp, ZoomIn } from 'react-native-reanimated';
 import { useTheme } from '../context/ThemeContext';
-import { ScaleButton } from './motion';
+import { AppButton } from './AppButton';
 
 type Props = {
   icon: keyof typeof Ionicons.glyphMap;
@@ -43,9 +43,7 @@ export function AppDialog({ icon, color, title, children, primaryLabel, onPrimar
             </Text>
           </Animated.View>
 
-          <ScaleButton style={[styles.primary, { backgroundColor: color }]} onPress={onPrimary}>
-            <Text style={[styles.primaryText, { fontSize: 19 + big }]}>{primaryLabel}</Text>
-          </ScaleButton>
+          <AppButton className="self-stretch" label={primaryLabel} onPress={onPrimary} />
           <TouchableOpacity style={styles.secondary} onPress={onSecondary} accessibilityRole="button">
             <Text style={[styles.secondaryText, { fontSize: 18 + big }, isDarkMode && { color: '#CBD5E1' }]}>
               {secondaryLabel}
@@ -64,8 +62,6 @@ const styles = StyleSheet.create({
   texts: { alignSelf: 'stretch', alignItems: 'center', marginBottom: 20 },
   title: { color: '#0F172A', fontWeight: '800', textAlign: 'center', marginBottom: 8 },
   message: { color: '#334155', textAlign: 'center' },
-  primary: { alignSelf: 'stretch', borderRadius: 14, paddingVertical: 16, alignItems: 'center' },
-  primaryText: { color: '#FFF', fontWeight: '800' },
   secondary: { alignSelf: 'stretch', marginTop: 6, paddingVertical: 12, alignItems: 'center' },
   secondaryText: { color: '#334155', fontWeight: '600' },
 });

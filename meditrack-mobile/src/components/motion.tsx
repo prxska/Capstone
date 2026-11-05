@@ -1,3 +1,4 @@
+import { cssInterop } from 'nativewind';
 import { useEffect, type ReactNode } from 'react';
 import { Pressable, type PressableProps, type StyleProp, type ViewStyle } from 'react-native';
 import Animated, {
@@ -11,6 +12,9 @@ import Animated, {
 } from 'react-native-reanimated';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
+// NativeWind solo aplica className a los componentes que conoce
+cssInterop(Animated.View, { className: 'style' });
 
 type ScaleButtonProps = Omit<PressableProps, 'style' | 'children'> & {
   style?: StyleProp<ViewStyle>;

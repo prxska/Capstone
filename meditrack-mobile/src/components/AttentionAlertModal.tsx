@@ -6,7 +6,9 @@ import { Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, Vibration
 import { useTheme } from '../context/ThemeContext';
 import type { AttentionAlertData } from '../lib/attentionAlerts';
 import { OWNER_PROFILE_ID } from '../lib/careProfiles';
-import { Pulse, ScaleButton } from './motion';
+import { AppButton } from './AppButton';
+import { Gradient } from './Gradient';
+import { Pulse } from './motion';
 import { formatDose, formatStock, getStockDaysLeft, LOW_STOCK_DAYS, parseDoseAmount } from '../lib/doseSchedule';
 
 const monthNames = [
@@ -42,7 +44,7 @@ type Props = {
   events: any[];
   // Pasa a la siguiente alerta sin marcar esta
   onClose: () => void;
-  // "Aceptar": descuenta la dosis del stock y pasa a la siguiente alerta
+  // "Ya me la tomé": descuenta la dosis del stock y pasa a la siguiente alerta
   onTaken: (alert: AttentionAlertData) => void;
 };
 
@@ -110,7 +112,7 @@ export function AttentionAlertModal({ alert, position, total, events, onClose, o
   const stockAfter = stock == null ? null : Math.max(0, stock - parseDoseAmount(dose));
   const daysLeftAfter = stockAfter == null || !current ? null : getStockDaysLeft({ ...current, stock: stockAfter });
   const hasNext = position < total;
-  const accent = isMedication ? '#0284C7' : '#D97706';
+  const accent = isMedication ? '#0369A1' : '#B45309';
   const textColor = isDarkMode ? '#F1F5F9' : '#102A43';
   const subColor = isDarkMode ? '#CBD5E1' : '#334155';
   const big = largeFont ? 4 : 0;
@@ -119,7 +121,7 @@ export function AttentionAlertModal({ alert, position, total, events, onClose, o
     ? [
         { icon: 'medical', text: `Tomar ${doseText || 'la dosis indicada'}` },
         { icon: 'time-outline', text: alert.time },
-        ...(stockAfter != null ? [{ icon: 'cube-outline' as const, text: `Quedarán ${formatStock(stockAfter, dose)}` }] : []),
+        ...(stockAfter != null ? [{ icon: 'cube-outline' as const, text: `${stockAfter === 1 ? 'Quedará' : 'Quedarán'} ${formatStock(stockAfter, dose)}` }] : []),
       ]
     : [
         { icon: 'calendar-outline', text: `${formatLongDate(alert.date)}, ${alert.time}` },
@@ -133,6 +135,7 @@ export function AttentionAlertModal({ alert, position, total, events, onClose, o
       <View style={styles.backdrop}>
         <Animated.View entering={ZoomIn.springify().damping(16).stiffness(180)} style={[styles.card, isDarkMode && { backgroundColor: '#1E293B' }]}>
           <View style={[styles.header, { backgroundColor: accent }]}>
+            <Gradient colors={isMedication ? ['#0B3A66', '#0369A1'] : ['#78350F', '#B45309']} />
             <Pulse>
               <Ionicons name={isMedication ? 'alarm' : 'calendar'} size={34} color="#FFF" />
             </Pulse>
@@ -151,7 +154,7 @@ export function AttentionAlertModal({ alert, position, total, events, onClose, o
             </View>
           </View>
 
-          <ScrollView style={styles.scroll} contentContainerStyle={styles.body}>
+          <ScrollView style={styles.scroll} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
             <Animated.View key={position} entering={FadeInRight.duration(260)}>
             {photoUri ? (
               <Image source={{ uri: photoUri }} style={styles.photo} resizeMode="cover" />
@@ -177,21 +180,13 @@ export function AttentionAlertModal({ alert, position, total, events, onClose, o
               </View>
             ) : null}
 
-            {isMedication ? (
-              <Text style={[styles.hint, { color: subColor, fontSize: 17 + big }]}>
-                Toca Aceptar cuando lo hayas tomado.
-              </Text>
-            ) : null}
-
-            <ScaleButton
-              style={[styles.button, { backgroundColor: accent }]}
+            <AppButton
+              className="mt-3.5"
+              tone={isMedication ? 'success' : 'warning'}
+              icon={isMedication ? 'checkmark-circle' : undefined}
               onPress={() => (isMedication ? onTaken(alert) : onClose())}
-              accessibilityRole="button"
-            >
-              <Text style={[styles.buttonText, { fontSize: 20 + big }]}>
-                {isMedication ? (hasNext ? 'Aceptar y siguiente' : 'Aceptar') : hasNext ? 'Siguiente' : 'Entendido'}
-              </Text>
-            </ScaleButton>
+              label={isMedication ? (hasNext ? 'Ya me la tomé · Siguiente' : 'Ya me la tomé') : hasNext ? 'Siguiente' : 'Entendido'}
+            />
 
             {isMedication ? (
               <TouchableOpacity style={styles.secondaryButton} onPress={onClose} accessibilityRole="button">
@@ -216,7 +211,7 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   card: { backgroundColor: '#FFF', borderRadius: 24, overflow: 'hidden', maxHeight: '100%' },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 20, paddingVertical: 18 },
+  header: { overflow: 'hidden', flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 20, paddingVertical: 18 },
   forWhom: { color: '#FFF', fontWeight: '700', opacity: 0.95 },
   headerText: { color: '#FFF', fontWeight: '800' },
   scroll: { flexShrink: 1 },
@@ -235,9 +230,6 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   lowStockText: { color: '#92400E', fontWeight: '700', flexShrink: 1 },
-  hint: { fontWeight: '600', marginTop: 8 },
-  button: { marginTop: 14, borderRadius: 14, paddingVertical: 16, alignItems: 'center' },
-  buttonText: { color: '#FFF', fontWeight: '800' },
   secondaryButton: { marginTop: 6, paddingVertical: 12, alignItems: 'center' },
   secondaryButtonText: { fontWeight: '600' },
 });

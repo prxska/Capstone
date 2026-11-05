@@ -24,19 +24,19 @@ export async function resetTutorial(accountKey: string) {
 const STEPS: { icon: keyof typeof Ionicons.glyphMap; color: string; title: string; text: string }[] = [
   {
     icon: 'heart-circle',
-    color: '#0284C7',
+    color: '#0369A1',
     title: 'Bienvenido a MediTrack',
     text: 'Te ayudamos a recordar tus medicamentos y citas médicas. Este recorrido dura menos de un minuto.',
   },
   {
     icon: 'medical',
-    color: '#36B9CC',
+    color: '#0369A1',
     title: 'Agrega tus medicamentos',
     text: 'Toca "+ Receta" y sigue los pasos: nombre, dosis, horario y cuántos días. Puedes sacarle una foto a la caja para reconocerla.',
   },
   {
     icon: 'calendar',
-    color: '#D97706',
+    color: '#B45309',
     title: 'Agrega tus citas médicas',
     text: 'Toca "+ Cita Médica". Te avisaremos 24 horas antes, con la hora, el doctor y el lugar.',
   },
@@ -44,13 +44,13 @@ const STEPS: { icon: keyof typeof Ionicons.glyphMap; color: string; title: strin
     icon: 'alarm',
     color: '#7C3AED',
     title: 'Alertas a la hora exacta',
-    text: 'Cuando sea hora de tu medicamento, sonará una alerta. Toca "Aceptar" cuando lo hayas tomado y, si anotaste cuántas tienes, te avisaremos cuando queden pocas.',
+    text: 'Cuando sea hora de tu medicamento, sonará una alerta. Toca "Ya me la tomé" y, si anotaste cuántas tienes, te avisaremos cuando queden pocas.',
   },
   {
     icon: 'people',
     color: '#16A34A',
     title: 'Cuida a tu familia',
-    text: 'En Mi Perfil puedes crear perfiles, por ejemplo para un hijo o tus padres. Cambia de perfil con los botones de arriba del calendario.',
+    text: 'En Mi Perfil puedes crear perfiles, por ejemplo para un hijo o tus padres. Cambia de perfil con los botones de arriba de la tarjeta.',
   },
   {
     icon: 'create',

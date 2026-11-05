@@ -9,8 +9,6 @@ import {
   AppState,
   Image,
   Modal,
-  NativeScrollEvent,
-  NativeSyntheticEvent,
   Platform,
   ScrollView,
   StyleSheet,
@@ -23,7 +21,14 @@ import Animated, { FadeIn, FadeInDown, FadeInLeft, FadeInRight, FadeOut, FadeOut
 import Swipeable, { type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AttentionAlertModal } from '../components/AttentionAlertModal';
-import { Bob, ScaleButton } from '../components/motion';
+import { ActionTile } from '../components/ActionTile';
+import { AppButton } from '../components/AppButton';
+import { Gradient } from '../components/Gradient';
+import { FormInput } from '../components/FormInput';
+import { NextDoseCard, NoDoseCard } from '../components/NextDoseCard';
+import { WeekStrip } from '../components/WeekStrip';
+import { formatDose } from '../lib/doseSchedule';
+import { doseKey, getNextDose, loadDoseLog, saveDoseLog, type DoseLog, type DoseState } from '../lib/doseLog';
 import { OnboardingTutorial, markTutorialSeen, shouldShowTutorial } from '../components/OnboardingTutorial';
 import { useTheme } from '../context/ThemeContext';
 import { listenForAttentionAlerts, syncAttentionAlerts, type AttentionAlertData } from '../lib/attentionAlerts';
@@ -64,7 +69,7 @@ const DOSE_UNITS = [
 ];
 
 // Colores que se asignan automáticamente a cada receta nueva, en este orden.
-// Son distintos entre sí y del ámbar que usan las citas (#D97706).
+// Son distintos entre sí y del ámbar que usan las citas (#B45309).
 const PILL_COLORS = [
   { id: '#38BDF8', name: 'Azul' },
   { id: '#EF4444', name: 'Rojo' },
@@ -117,7 +122,7 @@ function addDaysToDate(baseDateStr: string, days: number): string {
   return `${y}-${m}-${d}`;
 }
 
-const getTodayString = () => new Date().toISOString().split('T')[0];
+const getTodayString = () => formatDateKey(new Date());
 
 const initialRecipeForm = {
   patient: '',
@@ -223,7 +228,7 @@ function MinuteInput({
       onFocus={() => setDraft(value)}
       onBlur={() => setDraft(null)}
       onChangeText={(text) => {
-        const digits = text.replace(/D/g, '');
+        const digits = text.replace(/\D/g, '');
         const minutes = Number(digits) > 59 ? '59' : digits;
         setDraft(minutes);
         if (minutes) onChange(minutes.padStart(2, '0'));
@@ -288,9 +293,28 @@ export default function App() {
   const [pickerTarget, setPickerTarget] = useState<'startDate' | 'endDate' | 'appDate' | null>(null);
   const [pickerMonth, setPickerMonth] = useState(new Date());
 
-  const [showScrollPrompt, setShowScrollPrompt] = useState(true);
-
   const todayKey = useMemo(() => getChileTodayString(), []);
+  const [selectedDay, setSelectedDay] = useState(todayKey);
+  const [isMonthOpen, setIsMonthOpen] = useState(false);
+  const [now, setNow] = useState(() => new Date());
+  const [doseLog, setDoseLog] = useState<DoseLog>({});
+  const doseLogRef = useRef<DoseLog>({});
+
+  useEffect(() => {
+    void loadDoseLog().then((log) => {
+      doseLogRef.current = log;
+      setDoseLog(log);
+    });
+    const timer = setInterval(() => setNow(new Date()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const weekDaysKeys = useMemo(() => {
+    const [y, m, d] = todayKey.split('-').map(Number);
+    const today = new Date(y, m - 1, d);
+    const monday = today.getDate() - ((today.getDay() + 6) % 7);
+    return Array.from({ length: 7 }, (_, i) => formatDateKey(new Date(y, m - 1, monday + i)));
+  }, [todayKey]);
 
   const loadUser = async () => {
     const guest = await LocalAuth.isGuestMode();
@@ -364,13 +388,22 @@ export default function App() {
     setActiveProfileId(list.some((p) => p.id === savedActive) ? savedActive : OWNER_PROFILE_ID);
   };
 
-  const upcomingEvents = useMemo(() => {
-    return [...visibleEvents].sort((a, b) => {
-      const dateA = new Date(`${a.date}T${a.time || '00:00'}:00`);
-      const dateB = new Date(`${b.date}T${b.time || '00:00'}:00`);
-      return dateA.getTime() - dateB.getTime();
-    });
-  }, [visibleEvents]);
+  const nextDose = useMemo(() => getNextDose(visibleEvents, doseLog, now), [visibleEvents, doseLog, now]);
+
+  const dayAgenda = useMemo(
+    () => getEventsForDate(visibleEvents, selectedDay).sort((a, b) => (a.time || '').localeCompare(b.time || '')),
+    [visibleEvents, selectedDay]
+  );
+
+  const nextAppointments = useMemo(
+    () =>
+      visibleEvents
+        .filter((e) => e.type === 'appointment' && e.date > selectedDay)
+        .sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`)),
+    [visibleEvents, selectedDay]
+  );
+
+  const agendaEvents = useMemo(() => [...dayAgenda, ...nextAppointments].slice(0, 12), [dayAgenda, nextAppointments]);
 
   const dayDetailItems = useMemo(() => {
     if (!dayDetailKey) return [];
@@ -437,7 +470,7 @@ export default function App() {
           patient: a.patient || 'Usuario Local',
           date: a.date,
           time: a.time,
-          color: '#D97706' as const,
+          color: '#B45309' as const,
           colorName: 'Ámbar',
           dose: '',
           profileId: fromDbProfileId(a.profile_id),
@@ -517,7 +550,7 @@ export default function App() {
           patient: a.patient || currentUserName,
           date: a.date,
           time: a.time,
-          color: '#D97706' as const,
+          color: '#B45309' as const,
           colorName: 'Ámbar',
           dose: '',
           profileId: fromDbProfileId(a.profile_id),
@@ -553,7 +586,11 @@ export default function App() {
     const alertKey = (a: AttentionAlertData) => `${a.kind}-${a.eventId}-${a.date}-${a.time}`;
     setAlertQueue((prev) => {
       const known = new Set(prev.items.map(alertKey));
-      return { ...prev, items: [...prev.items, ...alerts.filter((a) => !known.has(alertKey(a)))] };
+      // Si ya la marcó en la tarjeta, no vuelve a preguntar
+      const fresh = alerts.filter(
+        (a) => !known.has(alertKey(a)) && doseLogRef.current[doseKey(a.eventId, a.date, a.time)] !== 'taken'
+      );
+      return fresh.length > 0 ? { ...prev, items: [...prev.items, ...fresh] } : prev;
     });
   }, []);
 
@@ -561,8 +598,15 @@ export default function App() {
     setAlertQueue((prev) => (prev.index + 1 < prev.items.length ? { ...prev, index: prev.index + 1 } : { items: [], index: 0 }));
   };
 
-  const updateStockAfterDose = async (alert: AttentionAlertData) => {
-    const recipe = eventsRef.current.find((e) => e.id === alert.eventId);
+  const updateDoseLog = (key: string, state: DoseState) => {
+    const next = { ...doseLogRef.current, [key]: state };
+    doseLogRef.current = next;
+    setDoseLog(next);
+    void saveDoseLog(next);
+  };
+
+  const updateStockAfterDose = async (eventId: string) => {
+    const recipe = eventsRef.current.find((e) => e.id === eventId);
     if (!recipe || recipe.stock == null) return;
 
     const nextStock = Math.max(0, recipe.stock - parseDoseAmount(recipe.dose));
@@ -584,10 +628,18 @@ export default function App() {
     }
   };
 
+  const markDoseTaken = (eventId: string, date: string, time: string) => {
+    const key = doseKey(eventId, date, time);
+    // La misma toma se puede marcar en la tarjeta y en la alerta: el stock se descuenta una sola vez
+    if (doseLogRef.current[key] === 'taken') return;
+    updateDoseLog(key, 'taken');
+    // De a una: si se aceptan varias seguidas no deben pisarse al guardar
+    stockUpdatesRef.current = stockUpdatesRef.current.then(() => updateStockAfterDose(eventId));
+  };
+
   const handleDoseTaken = (alert: AttentionAlertData) => {
     showNextAlert();
-    // De a una: si se aceptan varias seguidas no deben pisarse al guardar
-    stockUpdatesRef.current = stockUpdatesRef.current.then(() => updateStockAfterDose(alert));
+    markDoseTaken(alert.eventId, alert.date, alert.time);
   };
 
   useEffect(() => listenForAttentionAlerts(enqueueAlerts), [enqueueAlerts]);
@@ -599,14 +651,6 @@ export default function App() {
     return () => subscription.remove();
   }, []);
 
-  const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const offsetY = event.nativeEvent.contentOffset.y;
-    if (offsetY > 30 && showScrollPrompt) {
-      setShowScrollPrompt(false);
-    } else if (offsetY <= 10 && !showScrollPrompt) {
-      setShowScrollPrompt(true);
-    }
-  };
 
   const handleRecipeChange = (name: string, value: string) => {
     setRecipeForm((prev) => ({ ...prev, [name]: value }));
@@ -1074,51 +1118,39 @@ export default function App() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, isDarkMode && { backgroundColor: '#0F172A' }]}>
-      <View style={[styles.headerPanel, isDarkMode && { backgroundColor: '#1E293B' }]}>
+    <SafeAreaView style={[styles.container, isDarkMode && { backgroundColor: '#0B1B33' }]}>
+      <View style={styles.headerPanel}>
+        <Gradient colors={isDarkMode ? ['#0B2545', '#075985'] : ['#0B3A66', '#0369A1']} />
         <View style={styles.headerTopRow}>
-          <View style={styles.brandWrap}>
+          <View style={[styles.brandWrap, { flex: 1 }]}>
             <Image
               source={require('../images/Logo para App Meditrack.png')}
               style={styles.brandMarkImage}
               resizeMode="contain"
             />
-            <View>
-              <Text style={[styles.title, isDarkMode && { color: '#F1F5F9' }, largeFont && { fontSize: 28 }]}>
-                MediTrack
+            <View style={{ flexShrink: 1 }}>
+              <Text style={[styles.title, { color: '#FFF' }, largeFont && { fontSize: 30 }]} numberOfLines={1}>
+                {activeProfileId === OWNER_PROFILE_ID
+                  ? `Hola${ownerName || (!isGuest && currentUserName) ? `, ${(ownerName || currentUserName).trim().split(/\s+/)[0]}` : ''}`
+                  : `Agenda de ${profileDisplayName(activeProfileId)}`}
+              </Text>
+              <Text style={[styles.headerDate, largeFont && { fontSize: 22 }]}>
+                {formatLongDate(todayKey)}
               </Text>
             </View>
           </View>
 
-          <TouchableOpacity style={styles.iconButton} onPress={() => router.push('/profile' as any)}>
-            <Ionicons name="person-circle" size={45} color={isDarkMode ? '#38BDF8' : '#36B9CC'} />
+          <TouchableOpacity style={styles.iconButton} onPress={() => router.push('/profile' as any)} accessibilityRole="button" accessibilityLabel="Mi perfil">
+            <Ionicons name="person-circle" size={48} color="#FFF" />
           </TouchableOpacity>
         </View>
 
-        <View style={styles.topbarActions}>
-          <ScaleButton style={styles.primaryButton} onPress={() => openModal('recipe')}>
-            <Ionicons name="medical" size={18} color="#FFF" style={{ marginRight: 6 }} />
-            <Text style={styles.primaryButtonText}>+ Receta</Text>
-          </ScaleButton>
-
-          <ScaleButton
-            style={styles.appointmentButton}
-            onPress={() => openModal('appointment')}
-          >
-            <Ionicons name="calendar" size={18} color="#FFF" style={{ marginRight: 6 }} />
-            <Text style={styles.appointmentButtonText}>+ Cita Médica</Text>
-          </ScaleButton>
-        </View>
       </View>
 
       <View style={{ flex: 1, position: 'relative' }}>
         <ScrollView
           style={styles.mainLayout}
-          showsVerticalScrollIndicator={true}
-          persistentScrollbar={true}
-          indicatorStyle={isDarkMode ? 'white' : 'black'}
-          onScroll={handleScroll}
-          scrollEventThrottle={16}
+          showsVerticalScrollIndicator={false}
         >
           <ScrollView
             horizontal
@@ -1170,6 +1202,24 @@ export default function App() {
             </TouchableOpacity>
           </ScrollView>
 
+          {loading ? null : nextDose ? (
+            <NextDoseCard
+              key={doseKey(nextDose.event.id, nextDose.date, nextDose.time)}
+              medication={nextDose.event.medication || nextDose.event.title}
+              dose={formatDose(nextDose.event.dose) || 'La dosis indicada'}
+              time={nextDose.time}
+              status={nextDose.status}
+              photoUri={nextDose.event.photoUri}
+              forWhom={activeProfileId === OWNER_PROFILE_ID ? undefined : profileDisplayName(activeProfileId)}
+              position={nextDose.position}
+              total={nextDose.total}
+              onTaken={() => markDoseTaken(nextDose.event.id, nextDose.date, nextDose.time)}
+              onSkip={() => updateDoseLog(doseKey(nextDose.event.id, nextDose.date, nextDose.time), 'skipped')}
+            />
+          ) : (
+            <NoDoseCard hasMedications={visibleEvents.some((e) => e.type === 'recipe')} />
+          )}
+
           {lowStockRecipes.map((recipe) => (
             <Animated.View key={`stock-${recipe.id}`} entering={FadeInDown.duration(300)} exiting={FadeOut.duration(150)}>
             <TouchableOpacity
@@ -1193,7 +1243,28 @@ export default function App() {
             </Animated.View>
           ))}
 
-          <View style={[styles.calendarPanel, isDarkMode && { backgroundColor: '#1E293B' }]}>
+          <WeekStrip
+            days={weekDaysKeys}
+            selected={selectedDay}
+            today={todayKey}
+            marked={weekDaysKeys.filter((key) => getEventsForDate(visibleEvents, key).length > 0)}
+            onSelect={setSelectedDay}
+          />
+
+          <TouchableOpacity
+            style={styles.monthToggle}
+            onPress={() => setIsMonthOpen((open) => !open)}
+            accessibilityRole="button"
+            aria-expanded={isMonthOpen}
+          >
+            <Ionicons name={isMonthOpen ? 'chevron-up' : 'calendar-outline'} size={24} color={isDarkMode ? '#7DD3FC' : '#0369A1'} />
+            <Text style={[styles.monthToggleText, isDarkMode && { color: '#7DD3FC' }, largeFont && { fontSize: 22 }]}>
+              {isMonthOpen ? 'Ocultar el mes' : 'Ver el mes completo'}
+            </Text>
+          </TouchableOpacity>
+
+          {isMonthOpen && (
+          <Animated.View entering={FadeInDown.duration(250)} style={[styles.calendarPanel, isDarkMode && { backgroundColor: '#1E293B', borderColor: '#334155' }]}>
             <View style={styles.calendarActions}>
               <TouchableOpacity
                 style={[styles.navButton, isDarkMode && styles.darkNavButton]}
@@ -1217,7 +1288,7 @@ export default function App() {
             </View>
 
             {loading ? (
-              <ActivityIndicator size="large" color="#36B9CC" style={{ paddingVertical: 20 }} />
+              <ActivityIndicator size="large" color={isDarkMode ? '#7DD3FC' : '#0369A1'} style={{ paddingVertical: 20 }} />
             ) : (
               <Animated.View key={monthLabel} entering={FadeIn.duration(250)} style={styles.calendarGrid}>
                 {weekDays.map((day) => (
@@ -1308,21 +1379,22 @@ export default function App() {
                 })}
               </Animated.View>
             )}
-          </View>
+          </Animated.View>
+          )}
 
-          <View style={[styles.agendaPanel, isDarkMode && { backgroundColor: '#1E293B' }]}>
+          <View style={[styles.agendaPanel, isDarkMode && { backgroundColor: '#1E293B', borderColor: '#334155' }]}>
             <View style={styles.sectionHeader}>
-              <View style={[styles.dot, { backgroundColor: '#8A2BE2' }]} />
+              <View style={[styles.dot, { backgroundColor: isDarkMode ? '#7DD3FC' : '#0369A1' }]} />
               <Text style={[styles.sectionTitle, isDarkMode && { color: '#F1F5F9' }, largeFont && { fontSize: 24 }]}>
-                Próximas atenciones
+                {selectedDay === todayKey ? 'Agenda de hoy' : formatLongDate(selectedDay)}
               </Text>
             </View>
-            {upcomingEvents.length === 0 && !loading && (
+            {dayAgenda.length === 0 && !loading && (
               <Text style={[{ color: '#475569', fontSize: 18, fontWeight: '500' }, isDarkMode && { color: '#CBD5E1' }]}>
-                No hay registros próximos.
+                No hay registros para este día.
               </Text>
             )}
-            {upcomingEvents.slice(0, 8).map((event, index) => {
+            {agendaEvents.map((event, index) => {
               const isAppointment = event.type === 'appointment';
               return (
                 <Animated.View
@@ -1331,6 +1403,11 @@ export default function App() {
                   exiting={FadeOutLeft.duration(200)}
                   layout={LinearTransition.duration(220)}
                 >
+                {index === dayAgenda.length ? (
+                  <Text style={[styles.agendaSubtitle, isDarkMode && { color: '#F1F5F9' }, largeFont && { fontSize: 24 }]}>
+                    Próximas citas
+                  </Text>
+                ) : null}
                 <Swipeable
                   friction={2}
                   rightThreshold={40}
@@ -1354,8 +1431,7 @@ export default function App() {
                     styles.agendaItem,
                     { marginBottom: 0 },
                     isAppointment && styles.appointmentAgendaCard,
-                    isDarkMode && { backgroundColor: isAppointment ? '#451A03' : '#0F172A' },
-                    isDarkMode && isAppointment && { borderColor: '#B45309' }
+                    isDarkMode && { backgroundColor: isAppointment ? '#451A03' : '#0F172A', borderColor: isAppointment ? '#B45309' : '#334155' },
                   ]}
                   onPress={() => handleEditEvent(event)}
                   activeOpacity={0.7}
@@ -1385,15 +1461,19 @@ export default function App() {
                       <View style={styles.agendaWhenItem}>
                         <Ionicons name="time-outline" size={largeFont ? 22 : 20} color={isDarkMode ? '#CBD5E1' : '#334155'} />
                         <Text style={[styles.agendaWhenText, isDarkMode && { color: '#E2E8F0' }, largeFont && { fontSize: 22 }]}>
-                          {event.time}
+                          {isAppointment
+                            ? event.time
+                            : calculateDoseTimes(event.time, getIntervalHours(event.frequency)).join(' · ')}
                         </Text>
                       </View>
+                      {isAppointment && (
                       <View style={styles.agendaWhenItem}>
                         <Ionicons name="calendar-outline" size={largeFont ? 22 : 20} color={isDarkMode ? '#CBD5E1' : '#334155'} />
                         <Text style={[styles.agendaWhenText, isDarkMode && { color: '#E2E8F0' }, largeFont && { fontSize: 22 }]}>
                           {formatFriendlyDate(event.date, todayKey)}
                         </Text>
                       </View>
+                      )}
                     </View>
                   </View>
 
@@ -1415,18 +1495,11 @@ export default function App() {
           </View>
         </ScrollView>
 
-        {showScrollPrompt && (
-          <View pointerEvents="none" style={styles.floatingPromptContainer}>
-            <View style={[styles.floatingPromptPill, isDarkMode && styles.floatingPromptDark]}>
-              <Bob>
-                <Ionicons name="arrow-down-circle" size={22} color="#FFF" />
-              </Bob>
-              <Text style={styles.floatingPromptText}>
-                Baja para ver más atenciones
-              </Text>
-            </View>
-          </View>
-        )}
+      </View>
+
+      <View style={[styles.actionBar, isDarkMode && { backgroundColor: '#1E293B', borderTopColor: '#334155' }]}>
+        <ActionTile label="+ Receta" icon="medical" colors={['#0B4F8A', '#0369A1']} shadowColor="#0369A1" onPress={() => openModal('recipe')} />
+        <ActionTile label="+ Cita Médica" icon="calendar" colors={['#312E81', '#4338CA']} shadowColor="#4338CA" onPress={() => openModal('appointment')} />
       </View>
 
       <Modal visible={isFormOpen} transparent={true} animationType="slide">
@@ -1437,7 +1510,7 @@ export default function App() {
                 <Ionicons
                   name={formType === 'recipe' ? 'medical' : 'calendar'}
                   size={24}
-                  color={formType === 'recipe' ? '#36B9CC' : '#D97706'}
+                  color={formType === 'recipe' ? '#0369A1' : '#B45309'}
                 />
                 <Text style={[styles.modalTitle, isDarkMode && { color: '#F1F5F9' }]}>
                   {editingId
@@ -1452,9 +1525,8 @@ export default function App() {
 
             <View style={{ flexShrink: 1, position: 'relative' }}>
               <ScrollView
-                showsVerticalScrollIndicator={true}
-                persistentScrollbar={true}
-                indicatorStyle={isDarkMode ? 'white' : 'black'}
+                key={recipeStep}
+                showsVerticalScrollIndicator={false}
                 contentContainerStyle={{ paddingBottom: 35 }}
               >
                 <View style={styles.formGroup}>
@@ -1488,7 +1560,7 @@ export default function App() {
                             <Ionicons
                               name={isGuest ? "phone-portrait" : "person-circle"}
                               size={24}
-                              color="#36B9CC"
+                              color={isDarkMode ? '#7DD3FC' : '#0369A1'}
                               style={{ marginRight: 8 }}
                             />
                             <Text style={[styles.readOnlyUserText, isDarkMode && styles.darkText]}>
@@ -1497,10 +1569,8 @@ export default function App() {
                           </View>
 
                           <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Medicamento</Text>
-                          <TextInput
-                            style={[styles.input, isDarkMode && styles.darkInput]}
+                          <FormInput
                             placeholder="Ej. Paracetamol"
-                            placeholderTextColor="#94A3B8"
                             value={recipeForm.medication}
                             onChangeText={(t) => handleRecipeChange('medication', t)}
                           />
@@ -1522,7 +1592,7 @@ export default function App() {
                                   <Ionicons
                                     name={u.icon as any}
                                     size={20}
-                                    color={isSelected ? '#FFF' : isDarkMode ? '#38BDF8' : '#36B9CC'}
+                                    color={isSelected ? '#FFF' : isDarkMode ? '#38BDF8' : '#0369A1'}
                                   />
                                   <Text style={[
                                     styles.unitOptionText,
@@ -1556,7 +1626,7 @@ export default function App() {
                                 ref={cameraRef}
                               />
                               <TouchableOpacity 
-                                style={{ position: 'absolute', bottom: 15, alignSelf: 'center', backgroundColor: '#36B9CC', padding: 12, borderRadius: 30 }}
+                                style={{ position: 'absolute', bottom: 15, alignSelf: 'center', backgroundColor: '#0369A1', padding: 12, borderRadius: 30 }}
                                 onPress={takePicture}
                               >
                                 <Text style={{ color: '#FFF', fontWeight: 'bold' }}>Capturar Foto</Text>
@@ -1584,10 +1654,8 @@ export default function App() {
                           <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>
                             Cantidad ({doseUnit})
                           </Text>
-                          <TextInput
-                            style={[styles.input, isDarkMode && styles.darkInput]}
+                          <FormInput
                             placeholder="Ej. 1"
-                            placeholderTextColor="#94A3B8"
                             keyboardType="numeric"
                             value={doseAmount}
                             onChangeText={setDoseAmount}
@@ -1596,10 +1664,8 @@ export default function App() {
                           <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>
                             ¿Cuántas tienes? (opcional)
                           </Text>
-                          <TextInput
-                            style={[styles.input, isDarkMode && styles.darkInput]}
+                          <FormInput
                             placeholder="Ej. 30 — te avisaremos cuando queden pocas"
-                            placeholderTextColor="#94A3B8"
                             keyboardType="numeric"
                             value={recipeForm.stock}
                             onChangeText={(value) => handleRecipeChange('stock', value)}
@@ -1649,7 +1715,7 @@ export default function App() {
                                   onPress={() => adjustRecipeTime('hour', -1)}
                                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                                 >
-                                  <Ionicons name="remove" size={20} color={isDarkMode ? '#38BDF8' : '#0284C7'} />
+                                  <Ionicons name="remove" size={20} color={isDarkMode ? '#38BDF8' : '#0369A1'} />
                                 </TouchableOpacity>
 
                                 <Text style={[styles.stepperNumber, isDarkMode && { color: '#F1F5F9' }]}>
@@ -1661,7 +1727,7 @@ export default function App() {
                                   onPress={() => adjustRecipeTime('hour', 1)}
                                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                                 >
-                                  <Ionicons name="add" size={20} color={isDarkMode ? '#38BDF8' : '#0284C7'} />
+                                  <Ionicons name="add" size={20} color={isDarkMode ? '#38BDF8' : '#0369A1'} />
                                 </TouchableOpacity>
                               </View>
                             </View>
@@ -1677,7 +1743,7 @@ export default function App() {
                                   accessibilityLabel="Restar un minuto"
                                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                                 >
-                                  <Ionicons name="remove" size={20} color={isDarkMode ? '#38BDF8' : '#0284C7'} />
+                                  <Ionicons name="remove" size={20} color={isDarkMode ? '#38BDF8' : '#0369A1'} />
                                 </TouchableOpacity>
 
                                 <MinuteInput
@@ -1694,7 +1760,7 @@ export default function App() {
                                   accessibilityLabel="Sumar un minuto"
                                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                                 >
-                                  <Ionicons name="add" size={20} color={isDarkMode ? '#38BDF8' : '#0284C7'} />
+                                  <Ionicons name="add" size={20} color={isDarkMode ? '#38BDF8' : '#0369A1'} />
                                 </TouchableOpacity>
                               </View>
                             </View>
@@ -1766,7 +1832,7 @@ export default function App() {
                                     onPress={() => adjustCustomInterval(-1)}
                                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                                   >
-                                    <Ionicons name="remove" size={20} color={isDarkMode ? '#38BDF8' : '#0284C7'} />
+                                    <Ionicons name="remove" size={20} color={isDarkMode ? '#38BDF8' : '#0369A1'} />
                                   </TouchableOpacity>
 
                                   <Text style={[styles.stepperNumber, isDarkMode && { color: '#F1F5F9' }]}>
@@ -1778,7 +1844,7 @@ export default function App() {
                                     onPress={() => adjustCustomInterval(1)}
                                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                                   >
-                                    <Ionicons name="add" size={20} color={isDarkMode ? '#38BDF8' : '#0284C7'} />
+                                    <Ionicons name="add" size={20} color={isDarkMode ? '#38BDF8' : '#0369A1'} />
                                   </TouchableOpacity>
                                 </View>
                               </View>
@@ -1786,7 +1852,7 @@ export default function App() {
                           )}
 
                           <View style={[styles.schedulePreviewBox, isDarkMode && styles.darkScheduleBox]}>
-                            <Ionicons name="time-outline" size={18} color={isDarkMode ? '#38BDF8' : '#0284C7'} />
+                            <Ionicons name="time-outline" size={18} color={isDarkMode ? '#38BDF8' : '#0369A1'} />
                             <Text style={[styles.schedulePreviewText, isDarkMode && { color: '#F1F5F9' }]}>
                               Tomas al día: {calculateDoseTimes(recipeForm.startTime, selectedInterval).join('  •  ')}
                             </Text>
@@ -1808,7 +1874,7 @@ export default function App() {
                             <Ionicons
                               name={recipeForm.isChronic ? 'checkbox' : 'square-outline'}
                               size={26}
-                              color={recipeForm.isChronic ? '#FFF' : (isDarkMode ? '#38BDF8' : '#36B9CC')}
+                              color={recipeForm.isChronic ? '#FFF' : (isDarkMode ? '#38BDF8' : '#0369A1')}
                             />
                             <View style={{ flex: 1, marginLeft: 10 }}>
                               <Text style={[
@@ -1866,7 +1932,7 @@ export default function App() {
                                 style={[styles.dateTriggerButton, isDarkMode && styles.darkDateTrigger]}
                                 onPress={() => openPickerModal('startDate')}
                               >
-                                <Ionicons name="calendar-outline" size={18} color="#36B9CC" />
+                                <Ionicons name="calendar-outline" size={18} color={isDarkMode ? '#7DD3FC' : '#0369A1'} />
                                 <Text style={[styles.dateTriggerText, isDarkMode && { color: '#F1F5F9' }]}>
                                   {recipeForm.startDate}
                                 </Text>
@@ -1880,7 +1946,7 @@ export default function App() {
                                   style={[styles.dateTriggerButton, isDarkMode && styles.darkDateTrigger]}
                                   onPress={() => openPickerModal('endDate')}
                                 >
-                                  <Ionicons name="calendar-outline" size={18} color="#36B9CC" />
+                                  <Ionicons name="calendar-outline" size={18} color={isDarkMode ? '#7DD3FC' : '#0369A1'} />
                                   <Text style={[styles.dateTriggerText, isDarkMode && { color: '#F1F5F9' }]}>
                                     {recipeForm.endDate}
                                   </Text>
@@ -1897,19 +1963,13 @@ export default function App() {
                             style={[styles.backStepButton, isDarkMode && styles.darkBackStepButton]}
                             onPress={goToPrevRecipeStep}
                           >
-                            <Ionicons name="arrow-back" size={18} color={isDarkMode ? '#38BDF8' : '#36B9CC'} />
+                            <Ionicons name="arrow-back" size={18} color={isDarkMode ? '#38BDF8' : '#0369A1'} />
                             <Text style={[styles.backStepButtonText, isDarkMode && { color: '#38BDF8' }]}>Atrás</Text>
                           </TouchableOpacity>
                         )}
 
                         {recipeStep < RECIPE_STEP_TITLES.length - 1 && (
-                          <ScaleButton
-                            style={styles.nextStepButton}
-                            onPress={goToNextRecipeStep}
-                          >
-                            <Text style={styles.nextStepButtonText}>Siguiente</Text>
-                            <Ionicons name="arrow-forward" size={18} color="#FFF" />
-                          </ScaleButton>
+                          <AppButton className="flex-1" label="Siguiente" icon="arrow-forward" onPress={goToNextRecipeStep} />
                         )}
                       </View>
                     </>
@@ -1920,7 +1980,7 @@ export default function App() {
                         <Ionicons
                           name={isGuest ? "phone-portrait" : "person-circle"}
                           size={24}
-                          color="#D97706"
+                          color={isDarkMode ? '#A5B4FC' : '#4338CA'}
                           style={{ marginRight: 8 }}
                         />
                         <Text style={[styles.readOnlyUserText, isDarkMode && styles.darkText]}>
@@ -1934,7 +1994,7 @@ export default function App() {
                         style={[styles.dateTriggerButton, isDarkMode && styles.darkDateTrigger]}
                         onPress={() => openPickerModal('appDate')}
                       >
-                        <Ionicons name="calendar-outline" size={18} color="#D97706" />
+                        <Ionicons name="calendar-outline" size={18} color={isDarkMode ? '#A5B4FC' : '#4338CA'} />
                         <Text style={[styles.dateTriggerText, isDarkMode && { color: '#F1F5F9' }]}>
                           {appointmentForm.date}
                         </Text>
@@ -1953,7 +2013,7 @@ export default function App() {
                               onPress={() => adjustAppointmentTime('hour', -1)}
                               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                             >
-                              <Ionicons name="remove" size={20} color="#D97706" />
+                              <Ionicons name="remove" size={20} color={isDarkMode ? '#A5B4FC' : '#4338CA'} />
                             </TouchableOpacity>
 
                             <Text style={[styles.stepperNumber, isDarkMode && { color: '#F1F5F9' }]}>
@@ -1965,7 +2025,7 @@ export default function App() {
                               onPress={() => adjustAppointmentTime('hour', 1)}
                               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                             >
-                              <Ionicons name="add" size={20} color="#D97706" />
+                              <Ionicons name="add" size={20} color={isDarkMode ? '#A5B4FC' : '#4338CA'} />
                             </TouchableOpacity>
                           </View>
                         </View>
@@ -1981,7 +2041,7 @@ export default function App() {
                               accessibilityLabel="Restar un minuto"
                               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                             >
-                              <Ionicons name="remove" size={20} color="#D97706" />
+                              <Ionicons name="remove" size={20} color={isDarkMode ? '#A5B4FC' : '#4338CA'} />
                             </TouchableOpacity>
 
                             <MinuteInput
@@ -1998,26 +2058,22 @@ export default function App() {
                               accessibilityLabel="Sumar un minuto"
                               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                             >
-                              <Ionicons name="add" size={20} color="#D97706" />
+                              <Ionicons name="add" size={20} color={isDarkMode ? '#A5B4FC' : '#4338CA'} />
                             </TouchableOpacity>
                           </View>
                         </View>
                       </View>
 
                       <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Médico Tratante</Text>
-                      <TextInput
-                        style={[styles.input, isDarkMode && styles.darkInput]}
+                      <FormInput
                         placeholder="Ej. Dra. Gómez"
-                        placeholderTextColor="#94A3B8"
                         value={appointmentForm.doctor}
                         onChangeText={(t) => handleAppointmentChange('doctor', t)}
                       />
 
                       <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>Lugar o Centro Médico</Text>
-                      <TextInput
-                        style={[styles.input, isDarkMode && styles.darkInput]}
+                      <FormInput
                         placeholder="Ej. Hospital Puerto Montt / Box 4"
-                        placeholderTextColor="#94A3B8"
                         value={appointmentForm.location}
                         onChangeText={(t) => handleAppointmentChange('location', t)}
                       />
@@ -2026,24 +2082,17 @@ export default function App() {
                   )}
 
                   {(formType === 'appointment' || recipeStep === RECIPE_STEP_TITLES.length - 1) && (
-                    <ScaleButton
-                      style={[
-                        styles.submitButton,
-                        formType === 'appointment' && { backgroundColor: '#D97706' }
-                      ]}
+                    <AppButton
+                      className="mt-2"
+                      tone={formType === 'appointment' ? 'indigo' : 'primary'}
+                      loading={saving}
                       onPress={handleSubmit}
-                      disabled={saving}
-                    >
-                      {saving ? (
-                        <ActivityIndicator color="#FFF" />
-                      ) : (
-                        <Text style={styles.submitButtonText}>
-                          {editingId
-                            ? (isGuest ? 'Actualizar en Teléfono' : 'Actualizar en Supabase')
-                            : (isGuest ? 'Guardar en Teléfono' : 'Guardar en Supabase')}
-                        </Text>
-                      )}
-                    </ScaleButton>
+                      label={
+                        editingId
+                          ? (isGuest ? 'Actualizar en Teléfono' : 'Actualizar en Supabase')
+                          : (isGuest ? 'Guardar en Teléfono' : 'Guardar en Supabase')
+                      }
+                    />
                   )}
 
                   {editingId && (formType === 'appointment' || recipeStep === RECIPE_STEP_TITLES.length - 1) && (
@@ -2158,7 +2207,7 @@ export default function App() {
                 style={[styles.pickerNavBtn, isDarkMode && { backgroundColor: '#334155' }]}
                 onPress={() => setPickerMonth(new Date(pickerMonth.getFullYear(), pickerMonth.getMonth() - 1, 1))}
               >
-                <Ionicons name="chevron-back" size={20} color={isDarkMode ? '#38BDF8' : '#36B9CC'} />
+                <Ionicons name="chevron-back" size={20} color={isDarkMode ? '#38BDF8' : '#0369A1'} />
               </TouchableOpacity>
 
               <Text style={[styles.pickerMonthText, isDarkMode && { color: '#F1F5F9' }]}>
@@ -2169,14 +2218,14 @@ export default function App() {
                 style={[styles.pickerNavBtn, isDarkMode && { backgroundColor: '#334155' }]}
                 onPress={() => setPickerMonth(new Date(pickerMonth.getFullYear(), pickerMonth.getMonth() + 1, 1))}
               >
-                <Ionicons name="chevron-forward" size={20} color={isDarkMode ? '#38BDF8' : '#36B9CC'} />
+                <Ionicons name="chevron-forward" size={20} color={isDarkMode ? '#38BDF8' : '#0369A1'} />
               </TouchableOpacity>
             </View>
 
             <View style={styles.pickerGrid}>
               {weekDays.map((d) => (
                 <View key={d} style={styles.pickerDayCell}>
-                  <Text style={[styles.pickerWeekdayText, isDarkMode && { color: '#64748B' }]}>{d}</Text>
+                  <Text style={[styles.pickerWeekdayText, isDarkMode && { color: '#3E5468' }]}>{d}</Text>
                 </View>
               ))}
 
@@ -2235,11 +2284,11 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#EAF6F6' },
+  container: { flex: 1, backgroundColor: '#E6F1FB' },
   readOnlyUserBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#EAF6F6',
+    backgroundColor: '#F4F8FB',
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 12,
@@ -2259,7 +2308,8 @@ const styles = StyleSheet.create({
   darkText: { color: '#F8FAFC' },
   darkSubtext: { color: '#CBD5E1' },
   headerPanel: {
-    backgroundColor: '#FFF',
+    overflow: 'hidden',
+    backgroundColor: '#0369A1',
     borderRadius: 20,
     padding: 20,
     margin: 15,
@@ -2268,18 +2318,35 @@ const styles = StyleSheet.create({
       android: { elevation: 3 },
     }),
   },
-  headerTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
+  headerTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   brandWrap: { flexDirection: 'row', alignItems: 'center' },
   brandMarkImage: {
+    backgroundColor: '#FFF',
+    borderRadius: 23,
     width: 45,
     height: 45,
     marginRight: 15,
+  },
+  headerDate: { fontSize: 18, fontWeight: '600', color: '#E0F2FE' },
+  monthToggle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, minHeight: 56, marginBottom: 8 },
+  monthToggleText: { fontSize: 18, fontWeight: '700', color: '#0369A1' },
+  agendaSubtitle: { fontSize: 20, fontWeight: '800', color: '#102A43', marginTop: 12, marginBottom: 12 },
+  actionBar: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'stretch',
+    gap: 12,
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    backgroundColor: '#FFF',
+    borderTopWidth: 1,
+    borderTopColor: '#BFDBFE',
   },
   title: { fontSize: 24, fontWeight: 'bold', color: '#102A43' },
   iconButton: { justifyContent: 'center', alignItems: 'center' },
   topbarActions: { flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
   primaryButton: {
-    backgroundColor: '#007791',
+    backgroundColor: '#0369A1',
     flexDirection: 'row',
     paddingVertical: 12,
     borderRadius: 10,
@@ -2311,7 +2378,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#BAE6FD',
   },
-  profileChipActive: { backgroundColor: '#0284C7', borderColor: '#0284C7' },
+  profileChipActive: { backgroundColor: '#0369A1', borderColor: '#0369A1' },
   profileChipAdd: { borderStyle: 'dashed' },
   profileChipText: { fontSize: 18, fontWeight: '700', color: '#0F172A' },
   lowStockBanner: {
@@ -2327,10 +2394,10 @@ const styles = StyleSheet.create({
   },
   lowStockTitle: { fontSize: 18, fontWeight: '800', color: '#92400E' },
   lowStockText: { fontSize: 16, fontWeight: '600', color: '#78350F', marginTop: 2 },
-  calendarPanel: { backgroundColor: '#FFF', borderRadius: 20, padding: 15, marginBottom: 15 },
+  calendarPanel: { backgroundColor: '#FFF', borderRadius: 20, padding: 15, marginBottom: 15, borderWidth: 1, borderColor: '#BFDBFE' },
   calendarActions: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
   navButton: {
-    backgroundColor: '#007791',
+    backgroundColor: '#0369A1',
     width: 44,
     height: 44,
     borderRadius: 22,
@@ -2387,7 +2454,7 @@ const styles = StyleSheet.create({
   appointmentPill: {
     backgroundColor: '#FEF3C7',
     borderWidth: 1,
-    borderColor: '#D97706',
+    borderColor: '#B45309',
   },
   appointmentPillText: {
     color: '#78350F',
@@ -2410,23 +2477,23 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     marginBottom: 10,
     borderWidth: 1,
-    borderColor: '#F1F5F9',
+    borderColor: '#BFDBFE',
   },
   dayDetailTime: { fontSize: 18, fontWeight: '800', color: '#0369A1', width: 56 },
   dayDetailPhoto: { width: 52, height: 52, borderRadius: 10, marginLeft: 10, backgroundColor: '#E2E8F0' },
-  agendaPanel: { backgroundColor: '#FFF', borderRadius: 20, padding: 20, marginBottom: 40 },
+  agendaPanel: { backgroundColor: '#FFF', borderRadius: 20, padding: 20, marginBottom: 20, borderWidth: 1, borderColor: '#BFDBFE' },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 15 },
   dot: { width: 10, height: 10, borderRadius: 5, marginRight: 10 },
   sectionTitle: { fontSize: 20, fontWeight: 'bold', color: '#102A43' },
   agendaItem: {
-    backgroundColor: '#F9FBFC',
+    backgroundColor: '#EFF6FF',
     flexDirection: 'row',
     padding: 14,
     borderRadius: 14,
     marginBottom: 10,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#F1F5F9',
+    borderColor: '#BFDBFE',
     overflow: 'hidden',
   },
   cardDeleteButton: {
@@ -2452,7 +2519,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFBEB',
     borderColor: '#FCD34D',
     borderLeftWidth: 5,
-    borderLeftColor: '#D97706',
+    borderLeftColor: '#B45309',
   },
   appointmentBadgeIcon: {
     width: 32,
@@ -2497,7 +2564,7 @@ const styles = StyleSheet.create({
   darkInput: { backgroundColor: '#334155', color: '#F1F5F9' },
   row: { flexDirection: 'row', justifyContent: 'space-between' },
   halfWidth: { width: '48%' },
-  submitButton: { backgroundColor: '#36B9CC', padding: 15, borderRadius: 10, alignItems: 'center', marginTop: 10 },
+  submitButton: { backgroundColor: '#0369A1', padding: 15, borderRadius: 10, alignItems: 'center', marginTop: 10 },
   submitButtonText: { color: '#FFF', fontSize: 18, fontWeight: 'bold' },
   deleteButton: {
     flexDirection: 'row',
@@ -2522,7 +2589,7 @@ const styles = StyleSheet.create({
   stepCounterText: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#64748B',
+    color: '#3E5468',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
@@ -2540,7 +2607,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#334155',
   },
   stepDotActive: {
-    backgroundColor: '#36B9CC',
+    backgroundColor: '#0369A1',
     width: 20,
   },
   stepTitleText: {
@@ -2570,7 +2637,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#334155',
   },
   backStepButtonText: {
-    color: '#36B9CC',
+    color: '#0369A1',
     fontSize: 18,
     fontWeight: '700',
   },
@@ -2579,7 +2646,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    backgroundColor: '#36B9CC',
+    backgroundColor: '#0369A1',
     paddingVertical: 14,
     paddingHorizontal: 18,
     borderRadius: 10,
@@ -2605,8 +2672,8 @@ const styles = StyleSheet.create({
     borderColor: '#475569',
   },
   chronicToggleCardActive: {
-    backgroundColor: '#36B9CC',
-    borderColor: '#36B9CC',
+    backgroundColor: '#0369A1',
+    borderColor: '#0369A1',
   },
   chronicToggleTitle: {
     fontSize: 18,
@@ -2615,7 +2682,7 @@ const styles = StyleSheet.create({
   },
   chronicToggleSubtitle: {
     fontSize: 14,
-    color: '#64748B',
+    color: '#3E5468',
     marginTop: 2,
   },
   unitSelectorGrid: {
@@ -2641,8 +2708,8 @@ const styles = StyleSheet.create({
     borderColor: '#475569',
   },
   unitOptionSelected: {
-    backgroundColor: '#36B9CC',
-    borderColor: '#36B9CC',
+    backgroundColor: '#0369A1',
+    borderColor: '#0369A1',
   },
   unitOptionText: {
     fontSize: 16,
@@ -2690,7 +2757,7 @@ const styles = StyleSheet.create({
   miniSubLabel: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#64748B',
+    color: '#3E5468',
     marginBottom: 8,
   },
   quickDurationRow: {
@@ -2714,7 +2781,7 @@ const styles = StyleSheet.create({
   durationChipText: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#0284C7',
+    color: '#0369A1',
   },
   frequencyRow: {
     flexDirection: 'row',
@@ -2735,12 +2802,12 @@ const styles = StyleSheet.create({
     borderColor: '#475569',
   },
   freqChipSelected: {
-    backgroundColor: '#36B9CC',
-    borderColor: '#36B9CC',
+    backgroundColor: '#0369A1',
+    borderColor: '#0369A1',
   },
   customFreqChipSelected: {
-    backgroundColor: '#D97706',
-    borderColor: '#D97706',
+    backgroundColor: '#B45309',
+    borderColor: '#B45309',
   },
   customFreqChipIdle: {
     backgroundColor: '#FFF7ED',
@@ -2775,7 +2842,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F0F4F8',
+    backgroundColor: '#EFF6FF',
     borderRadius: 14,
     paddingVertical: 10,
     paddingHorizontal: 10,
@@ -2797,19 +2864,19 @@ const styles = StyleSheet.create({
   stepperSubtext: {
     fontSize: 14,
     fontWeight: '800',
-    color: '#64748B',
+    color: '#3E5468',
     marginBottom: 5,
     letterSpacing: 0.4,
   },
   stepperRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 4,
   },
   stepperBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     backgroundColor: '#FFFFFF',
     justifyContent: 'center',
     alignItems: 'center',
@@ -2830,6 +2897,8 @@ const styles = StyleSheet.create({
   },
   minuteInput: {
     padding: 0,
+    // Sin ancho fijo, en web el campo ocupa todo el espacio y saca los botones de la pantalla
+    width: 44,
   },
   timeSeparator: {
     fontSize: 24,
@@ -2851,8 +2920,8 @@ const styles = StyleSheet.create({
     borderColor: '#334155',
   },
   quickHourChipActive: {
-    backgroundColor: '#0284C7',
-    borderColor: '#0284C7',
+    backgroundColor: '#0369A1',
+    borderColor: '#0369A1',
   },
   quickHourChipText: {
     fontSize: 14,
@@ -2941,7 +3010,7 @@ const styles = StyleSheet.create({
     marginVertical: 2,
   },
   pickerDayCellSelected: {
-    backgroundColor: '#D97706',
+    backgroundColor: '#B45309',
   },
   pickerWeekdayText: {
     fontSize: 14,
@@ -2963,7 +3032,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: '#007791',
+    backgroundColor: '#0369A1',
     paddingVertical: 10,
     paddingHorizontal: 16,
     borderRadius: 24,

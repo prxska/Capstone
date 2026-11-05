@@ -95,7 +95,7 @@ export function ProfilesManager({ onOwnerRenamed }: Props) {
       </Text>
 
       <View style={styles.row}>
-        <Ionicons name="person" size={24} color="#0284C7" />
+        <Ionicons name="person" size={24} color="#0369A1" />
         <Text style={[styles.name, { color: textColor, fontSize: 20 + big }]} numberOfLines={1}>
           {ownerName || 'Yo'} <Text style={{ color: subColor, fontWeight: '500' }}>(tú)</Text>
         </Text>
@@ -108,11 +108,11 @@ export function ProfilesManager({ onOwnerRenamed }: Props) {
         </TouchableOpacity>
       </View>
 
-      {loading ? <ActivityIndicator color="#0284C7" style={{ marginVertical: 10 }} /> : null}
+      {loading ? <ActivityIndicator color="#0369A1" style={{ marginVertical: 10 }} /> : null}
 
       {profiles.map((profile) => (
         <View key={profile.id} style={[styles.row, styles.rowDivider, isDarkMode && { borderColor: '#334155' }]}>
-          <Ionicons name="people" size={24} color="#0284C7" />
+          <Ionicons name="people" size={24} color="#0369A1" />
           <Text style={[styles.name, { color: textColor, fontSize: 20 + big }]} numberOfLines={1}>
             {profile.name}
           </Text>
@@ -189,7 +189,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: '#0284C7',
+    backgroundColor: '#0369A1',
     borderRadius: 14,
     paddingVertical: 14,
     marginTop: 12,
@@ -203,5 +203,5 @@ const styles = StyleSheet.create({
   dialogActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 18 },
   cancelButton: { paddingHorizontal: 16, paddingVertical: 14 },
   cancelText: { fontWeight: '700' },
-  saveButton: { backgroundColor: '#0284C7', borderRadius: 12, paddingHorizontal: 22, paddingVertical: 14, minWidth: 110, alignItems: 'center' },
+  saveButton: { backgroundColor: '#0369A1', borderRadius: 12, paddingHorizontal: 22, paddingVertical: 14, minWidth: 110, alignItems: 'center' },
 });

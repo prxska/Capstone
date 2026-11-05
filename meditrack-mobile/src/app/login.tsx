@@ -14,7 +14,9 @@ import {
 import Animated, { FadeIn, FadeInDown, FadeInUp, FadeOut, ZoomIn } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppDialog } from '../components/AppDialog';
+import { Gradient } from '../components/Gradient';
 import { ScaleButton } from '../components/motion';
+import { AppButton } from '../components/AppButton';
 import { signInWithOAuth } from '../lib/oauth';
 import { LocalAuth } from '../lib/storage';
 import { supabase } from '../lib/supabase';
@@ -163,6 +165,7 @@ export default function LoginScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      <Gradient vertical colors={['#BFDBFE', '#E6F1FB']} />
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardView}
@@ -208,7 +211,7 @@ export default function LoginScreen() {
                     onChangeText={setFullName}
                     value={fullName}
                     placeholder="Ej. Juan Pérez"
-                    placeholderTextColor="#A0AEC0"
+                    placeholderTextColor="#3E5468"
                     autoCapitalize="words"
                   />
                 </View>
@@ -223,7 +226,7 @@ export default function LoginScreen() {
                 onChangeText={setEmail}
                 value={email}
                 placeholder="tu@email.com"
-                placeholderTextColor="#A0AEC0"
+                placeholderTextColor="#3E5468"
                 autoCapitalize="none"
                 keyboardType="email-address"
               />
@@ -238,7 +241,7 @@ export default function LoginScreen() {
                 value={password}
                 secureTextEntry={!showPassword}
                 placeholder="Mínimo 6 caracteres"
-                placeholderTextColor="#A0AEC0"
+                placeholderTextColor="#3E5468"
                 autoCapitalize="none"
               />
               <TouchableOpacity
@@ -249,7 +252,7 @@ export default function LoginScreen() {
                 <Ionicons
                   name={showPassword ? "eye-off" : "eye"}
                   size={22}
-                  color="#0284C7"
+                  color="#0369A1"
                 />
               </TouchableOpacity>
             </View>
@@ -265,7 +268,7 @@ export default function LoginScreen() {
                     value={confirmPassword}
                     secureTextEntry={!showConfirmPassword}
                     placeholder="Repite tu contraseña"
-                    placeholderTextColor="#A0AEC0"
+                    placeholderTextColor="#3E5468"
                     autoCapitalize="none"
                   />
                   <TouchableOpacity
@@ -276,27 +279,20 @@ export default function LoginScreen() {
                     <Ionicons
                       name={showConfirmPassword ? "eye-off" : "eye"}
                       size={22}
-                      color="#0284C7"
+                      color="#0369A1"
                     />
                   </TouchableOpacity>
                 </View>
               </Animated.View>
             )}
 
-            <ScaleButton
-              style={[styles.primaryButton, !isLogin && styles.primaryButtonRegister]}
+            <AppButton
+              className="mt-2"
+              label={isLogin ? 'Iniciar Sesión' : 'Registrar Paciente'}
               onPress={handleAuth}
-              disabled={loading || googleLoading}
-              activeOpacity={0.8}
-            >
-              {loading ? (
-                <ActivityIndicator color="#FFF" />
-              ) : (
-                <Text style={styles.primaryButtonText}>
-                  {isLogin ? 'Iniciar Sesión' : 'Registrar Paciente'}
-                </Text>
-              )}
-            </ScaleButton>
+              loading={loading}
+              disabled={googleLoading}
+            />
 
             <TouchableOpacity
               style={styles.switchButton}
@@ -352,7 +348,7 @@ export default function LoginScreen() {
       {existingAccountEmail && (
         <AppDialog
           icon="person-circle"
-          color="#0284C7"
+          color="#0369A1"
           title="Esta cuenta ya existe"
           primaryLabel="Iniciar sesión"
           onPrimary={goToLoginWithExistingAccount}
@@ -368,7 +364,7 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F0F4F8' },
+  container: { flex: 1, backgroundColor: '#E6F1FB' },
   keyboardView: { flex: 1 },
   scrollContent: {
     flexGrow: 1,
@@ -396,7 +392,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   title: { fontSize: 28, fontWeight: '800', color: '#0F172A', marginBottom: 4 },
-  subtitle: { fontSize: 16, color: '#64748B', textAlign: 'center', paddingHorizontal: 20 },
+  subtitle: { fontSize: 17, color: '#3E5468', textAlign: 'center', paddingHorizontal: 20 },
   formCard: {
     backgroundColor: '#FFFFFF',
     padding: 24,
@@ -440,11 +436,10 @@ const styles = StyleSheet.create({
       android: { elevation: 3 }
     })
   },
-  primaryButtonRegister: { backgroundColor: '#0284C7' },
   primaryButtonText: { color: '#FFFFFF', fontSize: 18, fontWeight: '700' },
   switchButton: { marginTop: 16, alignItems: 'center', paddingVertical: 6 },
-  switchTextRegular: { color: '#64748B', fontSize: 16 },
-  switchTextBold: { color: '#0284C7', fontWeight: '700' },
+  switchTextRegular: { color: '#3E5468', fontSize: 16 },
+  switchTextBold: { color: '#0369A1', fontWeight: '700' },
   dividerRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -452,7 +447,7 @@ const styles = StyleSheet.create({
     gap: 10
   },
   dividerLine: { flex: 1, height: 1, backgroundColor: '#E2E8F0' },
-  dividerText: { fontSize: 14, fontWeight: '700', color: '#94A3B8', letterSpacing: 0.5 },
+  dividerText: { fontSize: 16, fontWeight: '700', color: '#3E5468', letterSpacing: 0.5 },
   googleButton: {
     flexDirection: 'row',
     justifyContent: 'center',

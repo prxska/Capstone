@@ -6,18 +6,19 @@ import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   Modal,
-  NativeScrollEvent,
-  NativeSyntheticEvent,
   Platform,
   ScrollView,
   StyleSheet,
-  Switch,
   Text, TouchableOpacity,
   View
 } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Gradient } from '../components/Gradient';
+import { getMedicationPhoto } from '../lib/medicationPhotos';
+import { Switch } from '../components/ui/switch';
 import { resetTutorial } from '../components/OnboardingTutorial';
 import { ProfilesManager } from '../components/ProfilesManager';
 import { useTheme } from '../context/ThemeContext';
@@ -33,7 +34,6 @@ export default function ProfileScreen() {
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState('');
   const [isGuest, setIsGuest] = useState(false);
-  const [showScrollPrompt, setShowScrollPrompt] = useState(true);
 
   // Estados para el Historial
   const [isHistoryVisible, setIsHistoryVisible] = useState(false);
@@ -100,7 +100,13 @@ export default function ProfileScreen() {
             .order('deleted_at', { ascending: true }); // Del más antiguo al más nuevo
 
           if (error) throw error;
-          setHistoryData(data || []);
+          const withPhotos = await Promise.all(
+            (data || []).map(async (med: any) => ({
+              ...med,
+              photoUri: med.photo_url ? (await getMedicationPhoto(med.photo_url)).photoUri : '',
+            }))
+          );
+          setHistoryData(withPhotos);
         }
       }
     } catch (error) {
@@ -116,14 +122,6 @@ export default function ProfileScreen() {
     fetchHistory();
   };
 
-  const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const offsetY = event.nativeEvent.contentOffset.y;
-    if (offsetY > 30 && showScrollPrompt) {
-      setShowScrollPrompt(false);
-    } else if (offsetY <= 10 && !showScrollPrompt) {
-      setShowScrollPrompt(true);
-    }
-  };
 
   const handleSignOut = async () => {
     Alert.alert(
@@ -172,20 +170,17 @@ export default function ProfileScreen() {
       <View style={{ flex: 1, position: 'relative' }}>
         <ScrollView
           contentContainerStyle={styles.content}
-          showsVerticalScrollIndicator={true}
-          persistentScrollbar={true}
-          indicatorStyle={isDarkMode ? 'white' : 'black'}
-          onScroll={handleScroll}
-          scrollEventThrottle={16}
+          showsVerticalScrollIndicator={false}
         >
           <Animated.View entering={FadeInDown.duration(350)}>
           {/* Tarjeta de usuario */}
           <View style={[styles.userCard, isDarkMode && styles.darkCard]}>
-            <View style={[styles.avatarCircle, isDarkMode && { backgroundColor: '#334155' }]}>
+            <View style={styles.avatarCircle}>
+              <Gradient colors={['#0B3A66', '#0369A1']} />
               <Ionicons
                 name={isGuest ? "phone-portrait" : "person"}
                 size={56}
-                color={isDarkMode ? '#38BDF8' : '#0EA5E9'}
+                color="#FFF"
               />
             </View>
             <Text style={[
@@ -214,7 +209,7 @@ export default function ProfileScreen() {
               <Ionicons 
                 name="time-outline" 
                 size={20} 
-                color={isDarkMode ? '#38BDF8' : '#0284C7'} 
+                color={isDarkMode ? '#38BDF8' : '#0369A1'} 
                 style={{ marginRight: 8 }} 
               />
               <Text style={[
@@ -228,7 +223,7 @@ export default function ProfileScreen() {
 
             {isGuest && (
               <View style={styles.guestWarningBox}>
-                <Ionicons name="warning" size={20} color="#D97706" />
+                <Ionicons name="warning" size={20} color="#B45309" />
                 <Text style={[styles.guestWarningText, largeFont && { fontSize: 18 }]}>
                   Modo local activo: Sin respaldo en la nube.
                 </Text>
@@ -255,7 +250,7 @@ export default function ProfileScreen() {
                   <Ionicons
                     name={isDarkMode ? "moon" : "sunny"}
                     size={26}
-                    color={isDarkMode ? '#38BDF8' : '#0284C7'}
+                    color={isDarkMode ? '#38BDF8' : '#0369A1'}
                   />
                 </View>
                 <View style={{ flex: 1 }}>
@@ -278,8 +273,8 @@ export default function ProfileScreen() {
               <Switch
                 value={isDarkMode}
                 onValueChange={toggleTheme}
-                trackColor={{ false: '#CBD5E1', true: '#38BDF8' }}
-                thumbColor={isDarkMode ? '#0284C7' : '#FFFFFF'}
+                trackColor={{ false: '#64748B', true: '#0369A1' }}
+                thumbColor={isDarkMode ? '#0369A1' : '#FFFFFF'}
               />
             </View>
 
@@ -291,7 +286,7 @@ export default function ProfileScreen() {
                   <Ionicons
                     name="text"
                     size={26}
-                    color={largeFont ? '#16A34A' : '#64748B'}
+                    color={largeFont ? '#16A34A' : '#3E5468'}
                   />
                 </View>
                 <View style={{ flex: 1 }}>
@@ -314,7 +309,7 @@ export default function ProfileScreen() {
               <Switch
                 value={largeFont}
                 onValueChange={toggleFont}
-                trackColor={{ false: '#CBD5E1', true: '#22C55E' }}
+                trackColor={{ false: '#64748B', true: '#0369A1' }}
                 thumbColor={largeFont ? '#15803D' : '#FFFFFF'}
               />
             </View>
@@ -327,7 +322,7 @@ export default function ProfileScreen() {
                   <Ionicons
                     name={voiceAlerts ? 'volume-high' : 'volume-mute'}
                     size={26}
-                    color={voiceAlerts ? '#7C3AED' : '#64748B'}
+                    color={voiceAlerts ? '#7C3AED' : '#3E5468'}
                   />
                 </View>
                 <View style={{ flex: 1 }}>
@@ -350,7 +345,7 @@ export default function ProfileScreen() {
               <Switch
                 value={voiceAlerts}
                 onValueChange={handleToggleVoice}
-                trackColor={{ false: '#CBD5E1', true: '#A78BFA' }}
+                trackColor={{ false: '#64748B', true: '#0369A1' }}
                 thumbColor={voiceAlerts ? '#7C3AED' : '#FFFFFF'}
               />
             </View>
@@ -399,17 +394,6 @@ export default function ProfileScreen() {
           </Animated.View>
         </ScrollView>
 
-        {/* Indicador inferior flotante accesible para saber que hay contenido abajo */}
-        {showScrollPrompt && (
-          <View pointerEvents="none" style={styles.floatingPromptContainer}>
-            <View style={[styles.floatingPromptPill, isDarkMode && styles.floatingPromptDark]}>
-              <Ionicons name="chevron-down" size={16} color={isDarkMode ? '#94A3B8' : '#475569'} />
-              <Text style={[styles.floatingPromptText, isDarkMode && { color: '#94A3B8' }]}>
-                Baja para ver más opciones
-              </Text>
-            </View>
-          </View>
-        )}
       </View>
 
       {/* MODAL DE HISTORIAL DE MEDICAMENTOS */}
@@ -424,13 +408,13 @@ export default function ProfileScreen() {
             
             <View style={styles.modalHeader}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <Ionicons name="time" size={24} color={isDarkMode ? '#38BDF8' : '#0284C7'} />
+                <Ionicons name="time" size={24} color={isDarkMode ? '#38BDF8' : '#0369A1'} />
                 <Text style={[styles.modalTitle, isDarkMode && { color: '#F1F5F9' }, largeFont && { fontSize: 22 }]}>
                   Historial Médico
                 </Text>
               </View>
               <TouchableOpacity onPress={() => setIsHistoryVisible(false)}>
-                <Ionicons name="close-circle" size={32} color={isDarkMode ? '#64748B' : '#94A3B8'} />
+                <Ionicons name="close-circle" size={32} color={isDarkMode ? '#3E5468' : '#94A3B8'} />
               </TouchableOpacity>
             </View>
 
@@ -439,7 +423,7 @@ export default function ProfileScreen() {
             ) : historyData.length === 0 ? (
               <View style={{ alignItems: 'center', marginTop: 40 }}>
                 <Ionicons name="document-text-outline" size={60} color={isDarkMode ? '#334155' : '#CBD5E1'} />
-                <Text style={{ textAlign: 'center', marginTop: 16, color: isDarkMode ? '#CBD5E1' : '#64748B', fontSize: 16 }}>
+                <Text style={{ textAlign: 'center', marginTop: 16, color: isDarkMode ? '#CBD5E1' : '#3E5468', fontSize: 16 }}>
                   No hay medicamentos en el historial.
                 </Text>
               </View>
@@ -453,6 +437,8 @@ export default function ProfileScreen() {
                       isDarkMode && { backgroundColor: '#0F172A', borderColor: '#334155' }
                     ]}
                   >
+                    <View style={styles.historyRow}>
+                    <View style={{ flex: 1 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
                       <Ionicons 
                         name="medical" 
@@ -483,6 +469,17 @@ export default function ProfileScreen() {
                         })}
                       </Text>
                     </View>
+                    </View>
+                    {med.photoUri ? (
+                      <Image
+                        source={{ uri: med.photoUri }}
+                        style={styles.historyPhoto}
+                        resizeMode="cover"
+                        accessibilityRole="image"
+                        accessibilityLabel={`Foto de ${med.medication}`}
+                      />
+                    ) : null}
+                    </View>
                   </View>
                 ))}
               </ScrollView>
@@ -497,10 +494,10 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F0F4F8',
+    backgroundColor: '#E6F1FB',
   },
   darkContainer: {
-    backgroundColor: '#0F172A',
+    backgroundColor: '#0B1B33',
   },
   header: {
     flexDirection: 'row',
@@ -552,10 +549,11 @@ const styles = StyleSheet.create({
     borderColor: '#334155',
   },
   avatarCircle: {
+    overflow: 'hidden',
     width: 88,
     height: 88,
     borderRadius: 44,
-    backgroundColor: '#E0F2FE',
+    backgroundColor: '#0369A1',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 12,
@@ -568,7 +566,7 @@ const styles = StyleSheet.create({
   },
   userEmail: {
     fontSize: 16,
-    color: '#64748B',
+    color: '#3E5468',
     marginTop: 4,
     textAlign: 'center',
   },
@@ -592,7 +590,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 16,
     fontWeight: '800',
-    color: '#64748B',
+    color: '#3E5468',
     marginBottom: 10,
     marginLeft: 6,
     letterSpacing: 0.5,
@@ -637,7 +635,7 @@ const styles = StyleSheet.create({
   },
   optionSubtitle: {
     fontSize: 16,
-    color: '#64748B',
+    color: '#3E5468',
     marginTop: 2,
   },
   divider: {
@@ -726,7 +724,7 @@ const styles = StyleSheet.create({
   historyButtonText: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#0284C7',
+    color: '#0369A1',
     textAlign: 'center',
     flex: 1, // Esto ayuda a que el texto use todo el ancho disponible
   },
@@ -754,10 +752,12 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#102A43',
   },
+  historyRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  historyPhoto: { width: 92, height: 92, borderRadius: 14, backgroundColor: '#E0F2FE' },
   historyCard: {
-    backgroundColor: '#F8FAFC',
+    backgroundColor: '#EFF6FF',
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: '#BFDBFE',
     borderRadius: 14,
     padding: 16,
     marginBottom: 12,
