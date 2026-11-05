@@ -1,8 +1,10 @@
+import '../global.css';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import { AppState, Platform } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { GluestackUIProvider } from '../components/ui/gluestack-ui-provider';
 import { ThemeProvider, useTheme } from '../context/ThemeContext';
 import { configureAttentionAlerts } from '../lib/attentionAlerts';
 import { LocalAuth } from '../lib/storage';
@@ -81,14 +83,14 @@ function RootNavigation() {
   }, [segments]);
 
   return (
-    <>
+    <GluestackUIProvider mode={isDarkMode ? 'dark' : 'light'}>
       <StatusBar style={isDarkMode ? 'light' : 'dark'} />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="index" options={{ animation: 'fade' }} />
         <Stack.Screen name="login" options={{ animation: 'fade' }} />
         <Stack.Screen name="profile" options={{ animation: 'slide_from_right' }} />
       </Stack>
-    </>
+    </GluestackUIProvider>
   );
 }
 
