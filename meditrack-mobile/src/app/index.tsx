@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import * as ExpoImagePicker from 'expo-image-picker';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -17,19 +18,17 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
-import Animated, { FadeIn, FadeInDown, FadeInLeft, FadeInRight, FadeOut, FadeOutLeft, LinearTransition } from 'react-native-reanimated';
 import Swipeable, { type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
+import Animated, { FadeIn, FadeInDown, FadeInLeft, FadeInRight, FadeOut, FadeOutLeft, LinearTransition } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { AttentionAlertModal } from '../components/AttentionAlertModal';
 import { ActionTile } from '../components/ActionTile';
 import { AppButton } from '../components/AppButton';
-import { Gradient } from '../components/Gradient';
+import { AttentionAlertModal } from '../components/AttentionAlertModal';
 import { FormInput } from '../components/FormInput';
+import { Gradient } from '../components/Gradient';
 import { NextDoseCard, NoDoseCard } from '../components/NextDoseCard';
-import { WeekStrip } from '../components/WeekStrip';
-import { formatDose } from '../lib/doseSchedule';
-import { doseKey, getNextDose, loadDoseLog, saveDoseLog, type DoseLog, type DoseState } from '../lib/doseLog';
 import { OnboardingTutorial, markTutorialSeen, shouldShowTutorial } from '../components/OnboardingTutorial';
+import { WeekStrip } from '../components/WeekStrip';
 import { useTheme } from '../context/ThemeContext';
 import { listenForAttentionAlerts, syncAttentionAlerts, type AttentionAlertData } from '../lib/attentionAlerts';
 import {
@@ -43,13 +42,13 @@ import {
   toDbProfileId,
   type CareProfile,
 } from '../lib/careProfiles';
+import { doseKey, getNextDose, loadDoseLog, saveDoseLog, type DoseLog, type DoseState } from '../lib/doseLog';
 import {
   LOW_STOCK_DAYS,
-  calculateDoseTimes,
-  formatStock,
+  calculateDoseTimes, formatDose, formatStock,
   getIntervalHours,
   getStockDaysLeft,
-  parseDoseAmount,
+  parseDoseAmount
 } from '../lib/doseSchedule';
 import { getMedicationPhoto, uploadMedicationPhoto } from '../lib/medicationPhotos';
 import { LocalAuth } from '../lib/storage';
@@ -718,32 +717,81 @@ export default function App() {
     setPickerTarget(target);
   };
 
-  const handlePickMedicationPhoto = async () => {
-    if (!permission) return;
-    if (!permission.granted) {
-      const { granted } = await requestPermission();
-      if (!granted) {
-        Alert.alert('Permiso requerido', 'Necesitamos acceso a la cámara.');
-        return;
-      }
-    }
-    // En lugar de abrir la app nativa, mostramos nuestro componente interno
-    setIsCameraVisible(true);
+  const handlePickMedicationPhoto = () => {
+    Alert.alert(
+      'Agregar foto',
+      '¿De dónde quieres obtener la foto?',
+      [
+        {
+          text: 'Tomar foto',
+          onPress: async () => {
+            if (!permission) return;
+            if (!permission.granted) {
+              const { granted } = await requestPermission();
+              if (!granted) {
+                Alert.alert('Permiso requerido', 'Necesitamos acceso a la cámara.');
+                return;
+              }
+            }
+            // Abre tu cámara interna
+            setIsCameraVisible(true);
+          },
+        },
+        {
+          text: 'Abrir galería',
+          onPress: async () => {
+            // Pedir permisos para la galería
+            const { status } = await ExpoImagePicker.requestMediaLibraryPermissionsAsync();
+            if (status !== 'granted') {
+              Alert.alert('Permiso requerido', 'Necesitamos acceso a tus fotos para seleccionar una.');
+              return;
+            }
+
+            // Abrir la galería nativa
+            const result = await ExpoImagePicker.launchImageLibraryAsync({
+              mediaTypes: ['images'], // En SDK recientes se usa así
+              allowsEditing: true,
+              aspect: [4, 3],
+              quality: 0.8,
+            });
+
+            if (!result.canceled && result.assets && result.assets.length > 0) {
+              setRecipeForm((prev) => ({
+                ...prev,
+                photoUri: result.assets[0].uri,
+                photoStoragePath: '', // Reseteamos la ruta porque es una foto nueva
+              }));
+            }
+          },
+        },
+        {
+          text: 'Cancelar',
+          style: 'cancel',
+        },
+      ],
+      { cancelable: true }
+    );
   };
 
-  const takePicture = async () => {
+   const takePicture = async () => {
     if (cameraRef.current) {
-      const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.8,
-      });
-      if (photo?.uri) {
-        setRecipeForm((prev) => ({
-          ...prev,
-          photoUri: photo.uri,
-          photoStoragePath: '',
-        }));
+      try {
+        // En las versiones nuevas de expo-camera, el método se llama takePictureAsync
+        const photo = await cameraRef.current.takePictureAsync({
+          quality: 0.8,
+        });
+        if (photo?.uri) {
+          setRecipeForm((prev) => ({
+            ...prev,
+            photoUri: photo.uri,
+            photoStoragePath: '',
+          }));
+        }
+        setIsCameraVisible(false);
+      } catch (error) {
+        Alert.alert('Error', 'No se pudo tomar la foto. Intenta de nuevo.');
+        console.error(error);
       }
-      setIsCameraVisible(false);
     }
   };
 
