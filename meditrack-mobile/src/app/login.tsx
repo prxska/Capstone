@@ -1,5 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import * as WebBrowser from 'expo-web-browser';
+import { makeRedirectUri } from 'expo-auth-session';
 import { useState } from 'react';
 import {
   ActivityIndicator,
@@ -74,16 +76,58 @@ export default function LoginScreen() {
   };
 
   async function handleGoogleSignIn() {
-    setGoogleLoading(true);
-    try {
-      const signedIn = await signInWithOAuth('google');
-      if (signedIn) router.replace('/');
-    } catch (err: any) {
-      Alert.alert('Error con Google', err?.message || 'No se pudo iniciar sesión con Google.');
-    } finally {
-      setGoogleLoading(false);
+  setGoogleLoading(true);
+  try {
+    // Genera la URL de retorno apuntando exactamente al scheme de tu app.json
+    const redirectUrl = makeRedirectUri({
+      scheme: 'meditrackmobile',
+    });
+
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: redirectUrl,
+        skipBrowserRedirect: true,
+      },
+    });
+
+    if (error) throw error;
+
+    if (data?.url) {
+      // Abre la sesión del navegador y espera el retorno mediante deep linking
+      const res = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
+
+      if (res.type === 'success' && res.url) {
+        // Extraer los tokens de la URL de retorno devuelta por Supabase
+        const urlObj = new URL(res.url.replace('#', '?'));
+        const accessToken = urlObj.searchParams.get('access_token');
+        const refreshToken = urlObj.searchParams.get('refresh_token');
+
+        if (accessToken && refreshToken) {
+          const { error: sessionError } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          });
+          if (sessionError) throw sessionError;
+
+          await LocalAuth.setGuestMode(false);
+          router.replace('/');
+        } else {
+          // Si Supabase devuelve la sesión por código u otro método, refrescamos la sesión actual
+          const { data: sessionData } = await supabase.auth.getSession();
+          if (sessionData.session) {
+            await LocalAuth.setGuestMode(false);
+            router.replace('/');
+          }
+        }
+      }
     }
+  } catch (err: any) {
+    Alert.alert('Error con Google', err?.message || 'No se pudo iniciar sesión con Google.');
+  } finally {
+    setGoogleLoading(false);
   }
+}
 
   async function handleAuth() {
     if (!email.trim() || !password.trim()) {
