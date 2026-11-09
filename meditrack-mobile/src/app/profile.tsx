@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as MailComposer from 'expo-mail-composer';
 import { useRouter } from 'expo-router';
 import * as Speech from 'expo-speech';
 import { useEffect, useState } from 'react';
@@ -17,15 +18,16 @@ import {
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Gradient } from '../components/Gradient';
-import { getMedicationPhoto } from '../lib/medicationPhotos';
-import { Switch } from '../components/ui/switch';
 import { resetTutorial } from '../components/OnboardingTutorial';
 import { ProfilesManager } from '../components/ProfilesManager';
+import { Switch } from '../components/ui/switch';
 import { useTheme } from '../context/ThemeContext';
 import { cancelAttentionAlerts } from '../lib/attentionAlerts';
 import { OWNER_PROFILE_ID, setActiveProfileId } from '../lib/careProfiles';
+import { getMedicationPhoto } from '../lib/medicationPhotos';
 import { LocalAuth } from '../lib/storage';
 import { supabase } from '../lib/supabase';
+
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -120,6 +122,74 @@ export default function ProfileScreen() {
   const handleOpenHistory = () => {
     setIsHistoryVisible(true);
     fetchHistory();
+  };
+
+    const handleSendEmail = async () => {
+    // 1. Verificar si el teléfono tiene una app de correo
+    const isAvailable = await MailComposer.isAvailableAsync();
+    if (!isAvailable) {
+      Alert.alert('Error', 'No tienes una aplicación de correo configurada en este dispositivo.');
+      return;
+    }
+
+    // 2. Validar el correo del usuario (Si es invitado, va vacío para que lo escriban)
+    const validRecipients = (!isGuest && userEmail && userEmail.includes('@')) ? [userEmail] : [];
+
+    // 3. Armar las filas de la tabla HTML
+    let tableRows = '';
+    historyData.forEach((med) => {
+      const deletedDate = new Date(med.deleted_at).toLocaleDateString('es-CL', {
+        day: '2-digit', month: '2-digit', year: 'numeric'
+      });
+      
+      tableRows += `
+        <tr>
+          <td style="border: 1px solid #ddd; padding: 8px;">${med.medication || ''}</td>
+          <td style="border: 1px solid #ddd; padding: 8px;">${med.dose || 'No especificada'}</td>
+          <td style="border: 1px solid #ddd; padding: 8px;">${med.frequency || ''}</td>
+          <td style="border: 1px solid #ddd; padding: 8px;">${med.patient || ''}</td>
+          <td style="border: 1px solid #ddd; padding: 8px; color: #EF4444;">${deletedDate}</td>
+        </tr>
+      `;
+    });
+
+    // 4. Construir el HTML final
+    const htmlBody = `
+      <div style="font-family: Arial, sans-serif;">
+        <h2 style="color: #0369A1;">Historial Médico - MediTrack</h2>
+        <p>Hola ${isGuest ? '' : userName}, aquí tienes tu historial de medicamentos eliminados.</p>
+        
+        <table style="border-collapse: collapse; width: 100%; max-width: 600px; margin-top: 20px;">
+          <thead>
+            <tr style="background-color: #E0F2FE;">
+              <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Medicamento</th>
+              <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Dosis</th>
+              <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Frecuencia</th>
+              <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Paciente</th>
+              <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Fecha Eliminación</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRows}
+          </tbody>
+        </table>
+        
+        <br/>
+        <p style="font-size: 12px; color: #888;">Generado automáticamente por MediTrack.</p>
+      </div>
+    `;
+
+    // 5. Abrir el cliente de correo
+    try {
+      await MailComposer.composeAsync({
+        recipients: validRecipients,
+        subject: 'Mi Historial Médico - MediTrack',
+        body: htmlBody,
+        isHtml: true, // Importante para que se renderice la tabla
+      });
+    } catch (error) {
+      Alert.alert('Error', 'Hubo un error al intentar abrir el correo.');
+    }
   };
 
 
@@ -417,6 +487,31 @@ export default function ProfileScreen() {
                 <Ionicons name="close-circle" size={32} color={isDarkMode ? '#3E5468' : '#94A3B8'} />
               </TouchableOpacity>
             </View>
+
+            {/* BOTÓN PARA ENVIAR POR CORREO */}
+            {historyData.length > 0 && (
+              <TouchableOpacity
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  backgroundColor: isDarkMode ? '#0369A1' : '#0EA5E9',
+                  paddingVertical: 12,
+                  paddingHorizontal: 16,
+                  borderRadius: 12,
+                  marginBottom: 16,
+                  justifyContent: 'center',
+                  gap: 8
+                }}
+                onPress={handleSendEmail}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="mail" size={22} color="#FFF" />
+                <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 16 }}>
+                  Enviar historia por correo
+                </Text>
+              </TouchableOpacity>
+            )}
+
 
             {loadingHistory ? (
               <ActivityIndicator size="large" color="#0EA5E9" style={{ marginTop: 40 }} />

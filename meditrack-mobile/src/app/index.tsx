@@ -1,7 +1,6 @@
-import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import * as ExpoImagePicker from 'expo-image-picker';
+import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -54,6 +53,25 @@ import { getMedicationPhoto, uploadMedicationPhoto } from '../lib/medicationPhot
 import { LocalAuth } from '../lib/storage';
 import { supabase } from '../lib/supabase';
 import { syncUpcomingAttentionsWidget } from '../widgets/syncUpcomingAttentions';
+
+const iconGlyphs: Record<string, string> = {
+  'person-circle': '●', person: '♟', people: '♟', warning: '⚠',
+  'chevron-forward': '›', 'chevron-back': '‹', 'chevron-up': '⌃',
+  'calendar-outline': '▦', calendar: '▦', 'calendar-sharp': '▦',
+  'time-outline': '◷', trash: '▤', 'trash-outline': '▤', medical: '✚',
+  add: '+', remove: '−', 'arrow-back': '←', 'arrow-forward': '→',
+  checkbox: '☑', 'square-outline': '□', camera: '▣',
+  'phone-portrait': '▯', 'close-circle': '×', water: '♨',
+  'color-fill': '◉', fitness: '✚',
+};
+
+function Ionicons({ name, size, color, style }: { name: string; size: number; color: string; style?: any }) {
+  return (
+    <Text style={[{ fontSize: size, color, lineHeight: size, textAlign: 'center' }, style]}>
+      {iconGlyphs[name] || '•'}
+    </Text>
+  );
+}
 
 const LOCAL_RECIPES_KEY = '@meditrack_local_recipes';
 const LOCAL_APPTS_KEY = '@meditrack_local_appointments';
@@ -741,14 +759,14 @@ export default function App() {
           text: 'Abrir galería',
           onPress: async () => {
             // Pedir permisos para la galería
-            const { status } = await ExpoImagePicker.requestMediaLibraryPermissionsAsync();
+            const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
             if (status !== 'granted') {
               Alert.alert('Permiso requerido', 'Necesitamos acceso a tus fotos para seleccionar una.');
               return;
             }
 
             // Abrir la galería nativa
-            const result = await ExpoImagePicker.launchImageLibraryAsync({
+            const result = await ImagePicker.launchImageLibraryAsync({
               mediaTypes: ['images'], // En SDK recientes se usa así
               allowsEditing: true,
               aspect: [4, 3],
