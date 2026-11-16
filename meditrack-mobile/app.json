@@ -68,7 +68,8 @@
       ],
       "expo-audio",
       "expo-asset",
-      "expo-mail-composer"
+      "expo-status-bar",
+      "expo-web-browser"
     ],
     "extra": {
       "router": {},

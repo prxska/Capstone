@@ -1,6 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as MailComposer from 'expo-mail-composer';
 import { useRouter } from 'expo-router';
 import * as Speech from 'expo-speech';
 import { useEffect, useState } from 'react';
@@ -8,6 +7,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Linking,
   Modal,
   Platform,
   ScrollView,
@@ -124,70 +124,36 @@ export default function ProfileScreen() {
     fetchHistory();
   };
 
-    const handleSendEmail = async () => {
-    // 1. Verificar si el teléfono tiene una app de correo
-    const isAvailable = await MailComposer.isAvailableAsync();
-    if (!isAvailable) {
-      Alert.alert('Error', 'No tienes una aplicación de correo configurada en este dispositivo.');
-      return;
-    }
-
-    // 2. Validar el correo del usuario (Si es invitado, va vacío para que lo escriban)
-    const validRecipients = (!isGuest && userEmail && userEmail.includes('@')) ? [userEmail] : [];
-
-    // 3. Armar las filas de la tabla HTML
-    let tableRows = '';
-    historyData.forEach((med) => {
+  const handleSendEmail = async () => {
+    const recipient = !isGuest && userEmail.includes('@') ? userEmail : '';
+    const medicationEntries = historyData.map((med) => {
       const deletedDate = new Date(med.deleted_at).toLocaleDateString('es-CL', {
-        day: '2-digit', month: '2-digit', year: 'numeric'
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
       });
-      
-      tableRows += `
-        <tr>
-          <td style="border: 1px solid #ddd; padding: 8px;">${med.medication || ''}</td>
-          <td style="border: 1px solid #ddd; padding: 8px;">${med.dose || 'No especificada'}</td>
-          <td style="border: 1px solid #ddd; padding: 8px;">${med.frequency || ''}</td>
-          <td style="border: 1px solid #ddd; padding: 8px;">${med.patient || ''}</td>
-          <td style="border: 1px solid #ddd; padding: 8px; color: #EF4444;">${deletedDate}</td>
-        </tr>
-      `;
+
+      return [
+        `Medicamento: ${med.medication || 'Sin especificar'}`,
+        `Dosis: ${med.dose || 'No especificada'}`,
+        `Frecuencia: ${med.frequency || 'No especificada'}`,
+        `Paciente: ${med.patient || 'No especificado'}`,
+        `Fecha de eliminación: ${deletedDate}`,
+      ].join('\n');
     });
+    const body = [
+      `Hola${isGuest ? '' : ` ${userName}`}, aquí tienes tu historial de medicamentos eliminados.`,
+      ...medicationEntries,
+      'Generado automáticamente por MediTrack.',
+    ].join('\n\n');
+    const mailtoUrl = `mailto:${recipient}?subject=${encodeURIComponent(
+      'Mi Historial Médico - MediTrack'
+    )}&body=${encodeURIComponent(body)}`;
 
-    // 4. Construir el HTML final
-    const htmlBody = `
-      <div style="font-family: Arial, sans-serif;">
-        <h2 style="color: #0369A1;">Historial Médico - MediTrack</h2>
-        <p>Hola ${isGuest ? '' : userName}, aquí tienes tu historial de medicamentos eliminados.</p>
-        
-        <table style="border-collapse: collapse; width: 100%; max-width: 600px; margin-top: 20px;">
-          <thead>
-            <tr style="background-color: #E0F2FE;">
-              <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Medicamento</th>
-              <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Dosis</th>
-              <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Frecuencia</th>
-              <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Paciente</th>
-              <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Fecha Eliminación</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${tableRows}
-          </tbody>
-        </table>
-        
-        <br/>
-        <p style="font-size: 12px; color: #888;">Generado automáticamente por MediTrack.</p>
-      </div>
-    `;
-
-    // 5. Abrir el cliente de correo
     try {
-      await MailComposer.composeAsync({
-        recipients: validRecipients,
-        subject: 'Mi Historial Médico - MediTrack',
-        body: htmlBody,
-        isHtml: true, // Importante para que se renderice la tabla
-      });
+      await Linking.openURL(mailtoUrl);
     } catch (error) {
+      console.error('Error al abrir la aplicación de correo:', error);
       Alert.alert('Error', 'Hubo un error al intentar abrir el correo.');
     }
   };
