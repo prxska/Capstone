@@ -17,7 +17,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
-import Swipeable, { type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
+import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeIn, FadeInDown, FadeInLeft, FadeInRight, FadeOut, FadeOutLeft, LinearTransition } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ActionTile } from '../components/ActionTile';
@@ -53,25 +53,6 @@ import { getMedicationPhoto, uploadMedicationPhoto } from '../lib/medicationPhot
 import { LocalAuth } from '../lib/storage';
 import { supabase } from '../lib/supabase';
 import { syncUpcomingAttentionsWidget } from '../widgets/syncUpcomingAttentions';
-
-const iconGlyphs: Record<string, string> = {
-  'person-circle': '●', person: '♟', people: '♟', warning: '⚠',
-  'chevron-forward': '›', 'chevron-back': '‹', 'chevron-up': '⌃',
-  'calendar-outline': '▦', calendar: '▦', 'calendar-sharp': '▦',
-  'time-outline': '◷', trash: '▤', 'trash-outline': '▤', medical: '✚',
-  add: '+', remove: '−', 'arrow-back': '←', 'arrow-forward': '→',
-  checkbox: '☑', 'square-outline': '□', camera: '▣',
-  'phone-portrait': '▯', 'close-circle': '×', water: '♨',
-  'color-fill': '◉', fitness: '✚',
-};
-
-function Ionicons({ name, size, color, style }: { name: string; size: number; color: string; style?: any }) {
-  return (
-    <Text style={[{ fontSize: size, color, lineHeight: size, textAlign: 'center' }, style]}>
-      {iconGlyphs[name] || '•'}
-    </Text>
-  );
-}
 
 const LOCAL_RECIPES_KEY = '@meditrack_local_recipes';
 const LOCAL_APPTS_KEY = '@meditrack_local_appointments';
@@ -1469,92 +1450,73 @@ export default function App() {
                   exiting={FadeOutLeft.duration(200)}
                   layout={LinearTransition.duration(220)}
                 >
-                {index === dayAgenda.length ? (
-                  <Text style={[styles.agendaSubtitle, isDarkMode && { color: '#F1F5F9' }, largeFont && { fontSize: 24 }]}>
-                    Próximas citas
-                  </Text>
-                ) : null}
-                <Swipeable
-                  friction={2}
-                  rightThreshold={40}
-                  overshootRight={false}
-                  containerStyle={styles.swipeContainer}
-                  renderRightActions={(_progress, _translation, swipeable: SwipeableMethods) => (
+                  {index === dayAgenda.length ? (
+                    <Text style={[styles.agendaSubtitle, isDarkMode && { color: '#F1F5F9' }, largeFont && { fontSize: 24 }]}>
+                      Próximas citas
+                    </Text>
+                  ) : null}
+
+                  <TouchableOpacity
+                    style={[
+                      styles.agendaItem,
+                      isAppointment && styles.appointmentAgendaCard,
+                      isDarkMode && { backgroundColor: isAppointment ? '#451A03' : '#0F172A', borderColor: isAppointment ? '#B45309' : '#334155' },
+                    ]}
+                    onPress={() => handleEditEvent(event)}
+                    activeOpacity={0.7}
+                  >
+                    {isAppointment ? (
+                      <View style={[styles.appointmentBadgeIcon, styles.agendaIconLarge]}>
+                        <Ionicons name="calendar-sharp" size={22} color="#B45309" />
+                      </View>
+                    ) : (
+                      <View style={[styles.agendaBullet, styles.agendaBulletLarge, { backgroundColor: event.color }]} />
+                    )}
+
+                    <View style={styles.agendaInfo}>
+                      <Text
+                        style={[
+                          styles.agendaTitle,
+                          isAppointment && { color: isDarkMode ? '#FDE68A' : '#92400E' },
+                          isDarkMode && !isAppointment && { color: '#F1F5F9' },
+                          largeFont && { fontSize: 24 }
+                        ]}
+                        numberOfLines={2}
+                        ellipsizeMode="tail"
+                      >
+                        {event.title}
+                      </Text>
+                      <View style={styles.agendaWhenRow}>
+                        <View style={styles.agendaWhenItem}>
+                          <Ionicons name="time-outline" size={largeFont ? 22 : 20} color={isDarkMode ? '#CBD5E1' : '#334155'} />
+                          <Text style={[styles.agendaWhenText, isDarkMode && { color: '#E2E8F0' }, largeFont && { fontSize: 22 }]}>
+                            {isAppointment
+                              ? event.time
+                              : calculateDoseTimes(event.time, getIntervalHours(event.frequency)).join(' · ')}
+                          </Text>
+                        </View>
+                        {isAppointment && (
+                          <View style={styles.agendaWhenItem}>
+                            <Ionicons name="calendar-outline" size={largeFont ? 22 : 20} color={isDarkMode ? '#CBD5E1' : '#334155'} />
+                            <Text style={[styles.agendaWhenText, isDarkMode && { color: '#E2E8F0' }, largeFont && { fontSize: 22 }]}>
+                              {formatFriendlyDate(event.date, todayKey)}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                    </View>
+
                     <TouchableOpacity
-                      style={styles.swipeDeleteAction}
-                      onPress={() => confirmDelete(String(event.rawId), event.type, event.title, swipeable.close)}
+                      style={[styles.cardDeleteButton, isDarkMode && { backgroundColor: '#450A0A' }]}
+                      onPress={() => confirmDelete(String(event.rawId), event.type, event.title)}
                       disabled={saving}
                       accessibilityRole="button"
                       accessibilityLabel={`Eliminar ${event.title}`}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                     >
-                      <Ionicons name="trash" size={24} color="#FFF" />
-                      <Text style={styles.swipeDeleteText}>Eliminar</Text>
+                      <Ionicons name="trash" size={24} color={isDarkMode ? '#FCA5A5' : '#DC2626'} />
                     </TouchableOpacity>
-                  )}
-                >
-                <TouchableOpacity
-                  style={[
-                    styles.agendaItem,
-                    { marginBottom: 0 },
-                    isAppointment && styles.appointmentAgendaCard,
-                    isDarkMode && { backgroundColor: isAppointment ? '#451A03' : '#0F172A', borderColor: isAppointment ? '#B45309' : '#334155' },
-                  ]}
-                  onPress={() => handleEditEvent(event)}
-                  activeOpacity={0.7}
-                >
-                  {isAppointment ? (
-                    <View style={[styles.appointmentBadgeIcon, styles.agendaIconLarge]}>
-                      <Ionicons name="calendar-sharp" size={22} color="#B45309" />
-                    </View>
-                  ) : (
-                    <View style={[styles.agendaBullet, styles.agendaBulletLarge, { backgroundColor: event.color }]} />
-                  )}
-
-                  <View style={styles.agendaInfo}>
-                    <Text
-                      style={[
-                        styles.agendaTitle,
-                        isAppointment && { color: isDarkMode ? '#FDE68A' : '#92400E' },
-                        isDarkMode && !isAppointment && { color: '#F1F5F9' },
-                        largeFont && { fontSize: 24 }
-                      ]}
-                      numberOfLines={2}
-                      ellipsizeMode="tail"
-                    >
-                      {event.title}
-                    </Text>
-                    <View style={styles.agendaWhenRow}>
-                      <View style={styles.agendaWhenItem}>
-                        <Ionicons name="time-outline" size={largeFont ? 22 : 20} color={isDarkMode ? '#CBD5E1' : '#334155'} />
-                        <Text style={[styles.agendaWhenText, isDarkMode && { color: '#E2E8F0' }, largeFont && { fontSize: 22 }]}>
-                          {isAppointment
-                            ? event.time
-                            : calculateDoseTimes(event.time, getIntervalHours(event.frequency)).join(' · ')}
-                        </Text>
-                      </View>
-                      {isAppointment && (
-                      <View style={styles.agendaWhenItem}>
-                        <Ionicons name="calendar-outline" size={largeFont ? 22 : 20} color={isDarkMode ? '#CBD5E1' : '#334155'} />
-                        <Text style={[styles.agendaWhenText, isDarkMode && { color: '#E2E8F0' }, largeFont && { fontSize: 22 }]}>
-                          {formatFriendlyDate(event.date, todayKey)}
-                        </Text>
-                      </View>
-                      )}
-                    </View>
-                  </View>
-
-                  <TouchableOpacity
-                    style={[styles.cardDeleteButton, isDarkMode && { backgroundColor: '#450A0A' }]}
-                    onPress={() => confirmDelete(String(event.rawId), event.type, event.title)}
-                    disabled={saving}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Eliminar ${event.title}`}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <Ionicons name="trash" size={24} color={isDarkMode ? '#FCA5A5' : '#DC2626'} />
                   </TouchableOpacity>
-                </TouchableOpacity>
-                </Swipeable>
                 </Animated.View>
               );
             })}
@@ -2571,16 +2533,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginLeft: 10,
   },
-  swipeContainer: { marginBottom: 10, borderRadius: 14 },
-  swipeDeleteAction: {
-    backgroundColor: '#DC2626',
-    justifyContent: 'center',
-    alignItems: 'center',
-    width: 88,
-    marginLeft: 8,
-    borderRadius: 14,
-  },
-  swipeDeleteText: { color: '#FFF', fontSize: 16, fontWeight: '700', marginTop: 4 },
+
   appointmentAgendaCard: {
     backgroundColor: '#FFFBEB',
     borderColor: '#FCD34D',
