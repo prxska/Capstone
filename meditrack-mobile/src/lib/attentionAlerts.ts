@@ -1,5 +1,4 @@
 import Constants, { ExecutionEnvironment } from 'expo-constants';
-import { requireOptionalNativeModule } from 'expo';
 import { Platform } from 'react-native';
 import { calculateDoseTimes, formatDose, getIntervalHours } from './doseSchedule';
 import { e2eHooks } from './e2eHooks';
@@ -10,9 +9,8 @@ const Notifications: typeof import('expo-notifications') | null =
   Platform.OS === 'web' || isExpoGo ? null : require('expo-notifications');
 
 // Android no deja cambiar el sonido de un canal ya creado: por eso el sufijo de versión
-// El sonido de alarma llegó en el mismo build que expo-audio: si el APK instalado no lo tiene,
-// se usa el canal anterior con el sonido normal (un canal creado sin su sonido queda mudo para siempre)
-const HAS_ALARM_SOUND = Platform.OS !== 'web' && !!requireOptionalNativeModule('ExpoAudio');
+// Los builds nativos incluyen expo-audio como dependencia; Expo Go no admite el sonido personalizado
+const HAS_ALARM_SOUND = Platform.OS !== 'web' && !isExpoGo;
 const CHANNEL_ID = HAS_ALARM_SOUND ? 'meditrack-alerts-v3' : 'meditrack-alerts-v2';
 const OLD_CHANNEL_IDS = HAS_ALARM_SOUND ? ['meditrack-alerts', 'meditrack-alerts-v2'] : ['meditrack-alerts'];
 // Incluido en la app por el plugin de expo-notifications (app.json -> sounds)
