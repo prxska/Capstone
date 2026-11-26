@@ -15,7 +15,7 @@ test.describe('Citas médicas', () => {
 
   test('no guarda sin médico', async ({ guest }) => {
     await guest.getByText('+ Cita Médica').click();
-    await guest.getByText('Guardar en Teléfono').click();
+    await guest.getByRole('button', { name: 'Guardar cita' }).click();
     expect(await pressDialog(guest)).toBe('Incompleto');
     expect(await readStored(guest, APPOINTMENTS_KEY)).toEqual([]);
   });
@@ -37,7 +37,7 @@ test.describe('Citas médicas', () => {
     await guest.getByText('Cita: Dr. Soto').last().click();
     await expect(guest.getByText('Editar Cita Médica')).toBeVisible();
     await guest.getByPlaceholder('Ej. Dra. Gómez').fill('Dr. Soto Pérez');
-    await guest.getByText('Actualizar en Teléfono').click();
+    await guest.getByRole('button', { name: 'Guardar cita' }).click();
     await expect(guest.getByText('Editar Cita Médica')).toBeHidden();
     await expect(guest.getByRole('button', { name: 'Eliminar Cita: Dr. Soto Pérez' }).last()).toBeVisible();
 
