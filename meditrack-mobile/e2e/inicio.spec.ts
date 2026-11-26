@@ -37,26 +37,23 @@ test.describe('Pantalla principal', () => {
     await expect(guest.getByText('16:00', { exact: true })).toBeVisible();
   });
 
-  test('"Ya me la tomé" descuenta el stock, avanza y se recuerda al recargar', async ({ guest }) => {
-    await createMedication(guest, { name: 'Losartán', stock: '30' });
+  test('"Ya me la tomé" avanza y se recuerda al recargar', async ({ guest }) => {
+    await createMedication(guest, { name: 'Losartán' });
     await setTime(guest, 8, 5);
 
     await taken(guest).click();
     await expect(guest.getByText('16:00', { exact: true })).toBeVisible();
-    await expect.poll(async () => (await readStored(guest, RECIPES_KEY))[0].stock).toBe(29);
 
     await guest.reload();
     await expect(guest.getByText('16:00', { exact: true })).toBeVisible();
-    expect((await readStored(guest, RECIPES_KEY))[0].stock).toBe(29);
   });
 
-  test('"Ahora no" avanza sin descontar', async ({ guest }) => {
-    await createMedication(guest, { name: 'Losartán', stock: '30' });
+  test('"Ahora no" avanza sin marcar la toma', async ({ guest }) => {
+    await createMedication(guest, { name: 'Losartán' });
     await setTime(guest, 8, 5);
 
     await guest.getByText('Ahora no').click();
     await expect(guest.getByText('16:00', { exact: true })).toBeVisible();
-    expect((await readStored(guest, RECIPES_KEY))[0].stock).toBe(30);
   });
 
   test('varios a la misma hora se muestran de a uno', async ({ guest }) => {
@@ -136,19 +133,17 @@ test.describe('Pantalla principal', () => {
     await expect(guest.getByText('Por hoy, todo listo')).toBeVisible();
   });
 
-  test('una toma marcada en la tarjeta no vuelve a preguntar ni descuenta dos veces', async ({ guest }) => {
-    await createMedication(guest, { name: 'Losartán', stock: '30' });
+  test('una toma marcada en la tarjeta no vuelve a preguntar', async ({ guest }) => {
+    await createMedication(guest, { name: 'Losartán' });
     await setTime(guest, 7, 59);
     await expect.poll(async () => (await readScheduled(guest)).length).toBeGreaterThan(0);
     const [{ alerts }] = await readScheduled(guest);
     expect(alerts[0].time).toBe('08:00');
 
     await taken(guest).click();
-    await expect.poll(async () => (await readStored(guest, RECIPES_KEY))[0].stock).toBe(29);
 
     await fireAlerts(guest, alerts);
     await expect(guest.getByText('Hora del medicamento')).toBeHidden();
-    expect((await readStored(guest, RECIPES_KEY))[0].stock).toBe(29);
   });
 
   test('el calendario semanal cambia la agenda y las citas futuras siguen a la vista', async ({ guest }) => {

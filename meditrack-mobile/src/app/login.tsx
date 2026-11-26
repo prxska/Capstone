@@ -176,7 +176,7 @@ export default function LoginScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <Animated.View entering={FadeInDown.duration(400)} style={styles.brandWrap}>
-            <Animated.View entering={ZoomIn.springify().damping(14)}>
+            <Animated.View entering={ZoomIn.duration(300)}>
               <Image
                 source={require('../images/Logo para App Meditrack.png')}
                 style={styles.brandMarkImage}

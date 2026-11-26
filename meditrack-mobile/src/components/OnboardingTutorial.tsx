@@ -44,7 +44,7 @@ const STEPS: { icon: keyof typeof Ionicons.glyphMap; color: string; title: strin
     icon: 'alarm',
     color: '#7C3AED',
     title: 'Alertas a la hora exacta',
-    text: 'Cuando sea hora de tu medicamento, sonará una alerta. Toca "Ya me la tomé" y, si anotaste cuántas tienes, te avisaremos cuando queden pocas.',
+    text: 'Cuando sea hora de tu medicamento, sonará una alerta. Toca "Ya me la tomé" para registrar la toma.',
   },
   {
     icon: 'people',
@@ -94,7 +94,7 @@ export function OnboardingTutorial({ visible, onClose }: Props) {
             entering={(movingForward ? FadeInRight : FadeInLeft).duration(280)}
             style={styles.stepContent}
           >
-          <Animated.View entering={ZoomIn.springify().damping(13)} style={[styles.iconCircle, { backgroundColor: current.color }]}>
+          <Animated.View entering={ZoomIn.duration(260)} style={[styles.iconCircle, { backgroundColor: current.color }]}>
             <Ionicons name={current.icon} size={56} color="#FFF" />
           </Animated.View>
 

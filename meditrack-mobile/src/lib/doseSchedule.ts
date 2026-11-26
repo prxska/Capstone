@@ -35,28 +35,3 @@ export function formatDose(dose: string): string {
   if (!names) return (dose || '').trim();
   return `${amount} ${amount === '1' ? names[0] : names[1]}`;
 }
-
-export const LOW_STOCK_DAYS = 3;
-
-// "1 comp" -> 1, "2,5 ml" -> 2.5
-export function parseDoseAmount(dose: string): number {
-  const amount = parseFloat(String(dose || '').trim().split(/\s+/)[0]?.replace(',', '.'));
-  return Number.isFinite(amount) && amount > 0 ? amount : 1;
-}
-
-export function getDoseUnit(dose: string): string {
-  return String(dose || '').trim().split(/\s+/)[1] || 'comp';
-}
-
-/** Días que alcanza el stock con la dosis y frecuencia de la receta, o null si no se controla. */
-export function getStockDaysLeft(recipe: { stock?: number | null; dose?: string; frequency?: string; time?: string }) {
-  if (recipe.stock == null) return null;
-  const dosesPerDay = calculateDoseTimes(recipe.time || '08:00', getIntervalHours(recipe.frequency || '')).length || 1;
-  return Math.floor(recipe.stock / (parseDoseAmount(recipe.dose || '') * dosesPerDay));
-}
-
-// 4 + "1 comp" -> "4 pastillas"
-export function formatStock(stock: number, dose: string) {
-  const rounded = Math.round(stock * 100) / 100;
-  return formatDose(`${String(rounded).replace('.', ',')} ${getDoseUnit(dose)}`);
-}

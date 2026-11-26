@@ -1,10 +1,10 @@
 'use no memo';
 
 import {
-    FlexWidget,
-    ImageWidget,
-    TextWidget,
-    type ImageWidgetSource,
+  FlexWidget,
+  ImageWidget,
+  TextWidget,
+  type ImageWidgetSource,
 } from 'react-native-android-widget';
 
 export type UpcomingAttention = {
@@ -29,12 +29,14 @@ export function UpcomingAttentionsWidget({ events }: Props) {
   return (
     <FlexWidget
       style={{
-        height: 'match_parent',
+        height: 'wrap_content',
         width: 'match_parent',
         backgroundColor: '#FFFFFF',
-        borderRadius: 16,
+        borderColor: '#E2E8F0',
+        borderWidth: 1,
+        borderRadius: 18,
         flexDirection: 'column',
-        padding: 8,
+        padding: 12,
       }}
       accessibilityLabel="Próximas atenciones de MediTrack"
       clickAction="OPEN_URI"
@@ -45,28 +47,95 @@ export function UpcomingAttentionsWidget({ events }: Props) {
           width: 'match_parent',
           flexDirection: 'row',
           alignItems: 'center',
-          flexGap: 6,
-          marginBottom: 6,
+          flexGap: 8,
+          marginBottom: 8,
         }}
       >
         <FlexWidget
-          style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#8A2BE2' }}
-        />
-        <TextWidget
-          text="Próximas atenciones"
-          maxLines={1}
-          truncate="END"
-          style={{ color: '#102A43', fontSize: 14, fontWeight: 'bold' }}
-        />
+          style={{
+            width: 30,
+            height: 30,
+            borderRadius: 10,
+            backgroundColor: '#DBEAFE',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <TextWidget
+            text="M"
+            style={{ color: '#0369A1', fontSize: 15, fontWeight: 'bold' }}
+          />
+        </FlexWidget>
+        <FlexWidget style={{ flex: 1, flexDirection: 'column' }}>
+          <TextWidget
+            text="Próximas atenciones"
+            maxLines={1}
+            truncate="END"
+            style={{ color: '#102A43', fontSize: 14, fontWeight: 'bold' }}
+          />
+          <TextWidget
+            text="Tus recordatorios"
+            maxLines={1}
+            style={{ color: '#64748B', fontSize: 10, marginTop: 1 }}
+          />
+        </FlexWidget>
+        {events.length > 0 ? (
+          <FlexWidget
+            style={{
+              borderRadius: 10,
+              backgroundColor: '#EFF6FF',
+              paddingHorizontal: 8,
+              paddingVertical: 5,
+            }}
+          >
+            <TextWidget
+              text={`${Math.min(events.length, 3)}`}
+              style={{ color: '#0369A1', fontSize: 11, fontWeight: 'bold' }}
+            />
+          </FlexWidget>
+        ) : null}
       </FlexWidget>
 
       {events.length === 0 ? (
-        <FlexWidget style={{ flex: 1, justifyContent: 'center' }}>
-          <TextWidget
-            text="Abre MediTrack para actualizar tus atenciones."
-            maxLines={2}
-            style={{ color: '#64748B', fontSize: 11 }}
-          />
+        <FlexWidget
+          style={{
+            width: 'match_parent',
+            flexDirection: 'row',
+            alignItems: 'center',
+            flexGap: 9,
+            borderRadius: 12,
+            backgroundColor: '#F8FAFC',
+            padding: 10,
+          }}
+        >
+          <FlexWidget
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: 9,
+              backgroundColor: '#DCFCE7',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <TextWidget
+              text="OK"
+              style={{ color: '#15803D', fontSize: 9, fontWeight: 'bold' }}
+            />
+          </FlexWidget>
+          <FlexWidget style={{ flex: 1, flexDirection: 'column' }}>
+            <TextWidget
+              text="Todo al día"
+              maxLines={1}
+              style={{ color: '#102A43', fontSize: 12, fontWeight: 'bold' }}
+            />
+            <TextWidget
+              text="Agrega una cita o medicamento para verla aquí."
+              maxLines={2}
+              truncate="END"
+              style={{ color: '#64748B', fontSize: 10, marginTop: 2 }}
+            />
+          </FlexWidget>
         </FlexWidget>
       ) : (
         events.slice(0, 3).map((event, index) => {
@@ -86,6 +155,7 @@ export function UpcomingAttentionsWidget({ events }: Props) {
             event.patient ? `(${event.patient})` : '',
             event.location ? `Lugar: ${event.location}` : '',
           ].filter(Boolean).join(' · ');
+          const accent = isAppointment ? '#D97706' : (event.color || '#0284C7');
 
           return (
             <FlexWidget
@@ -94,51 +164,60 @@ export function UpcomingAttentionsWidget({ events }: Props) {
                 width: 'match_parent',
                 flexDirection: 'row',
                 alignItems: 'center',
-                flexGap: 6,
+                flexGap: 8,
                 backgroundColor: isAppointment ? '#FFFBEB' : '#F8FAFC',
                 borderWidth: 1,
-                borderColor: isAppointment ? '#FCD34D' : '#E2E8F0',
-                borderLeftWidth: isAppointment ? 4 : 1,
-                borderLeftColor: isAppointment ? '#D97706' : '#E2E8F0',
-                borderRadius: 8,
-                padding: 5,
-                marginBottom: 4,
+                borderColor: isAppointment ? '#FDE68A' : '#E2E8F0',
+                borderLeftWidth: 3,
+                borderLeftColor: accent,
+                borderRadius: 12,
+                padding: 7,
+                marginBottom: index < Math.min(events.length, 3) - 1 ? 6 : 0,
               }}
             >
-              <FlexWidget style={{ flex: 1, flexDirection: 'row', alignItems: 'center', flexGap: 6 }}>
-                <FlexWidget
+              <FlexWidget
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: 9,
+                  backgroundColor: isAppointment ? '#FEF3C7' : '#DBEAFE',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <TextWidget
+                  text={isAppointment ? 'C' : 'Rx'}
                   style={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: 4,
-                    backgroundColor: isAppointment ? '#D97706' : (event.color || '#38BDF8'),
+                    color: isAppointment ? '#92400E' : '#0369A1',
+                    fontSize: isAppointment ? 12 : 10,
+                    fontWeight: 'bold',
                   }}
                 />
-                <FlexWidget style={{ flex: 1, flexDirection: 'column' }}>
-                  <TextWidget
-                    text={isAppointment ? `CITA MÉDICA  ${event.title}` : event.title}
-                    maxLines={1}
-                    truncate="END"
-                    style={{ color: isAppointment ? '#92400E' : '#102A43', fontSize: 11, fontWeight: 'bold' }}
-                  />
-                  <TextWidget
-                    text={details}
-                    maxLines={2}
-                    truncate="END"
-                    style={{ color: '#64849A', fontSize: 9, marginTop: 1 }}
-                  />
-                </FlexWidget>
+              </FlexWidget>
+              <FlexWidget style={{ flex: 1, flexDirection: 'column' }}>
+                <TextWidget
+                  text={event.title}
+                  maxLines={1}
+                  truncate="END"
+                  style={{ color: isAppointment ? '#78350F' : '#102A43', fontSize: 11, fontWeight: 'bold' }}
+                />
+                <TextWidget
+                  text={details}
+                  maxLines={2}
+                  truncate="END"
+                  style={{ color: '#64748B', fontSize: 9, marginTop: 2 }}
+                />
               </FlexWidget>
               {!isAppointment && remotePhoto ? (
                 <ImageWidget
                   image={remotePhoto}
-                  imageWidth={72}
+                  imageWidth={64}
                   imageHeight={thumbnailHeight}
                   resizeMode="contain"
                   style={{
-                    width: 72,
+                    width: 64,
                     height: thumbnailHeight,
-                    borderRadius: 6,
+                    borderRadius: 8,
                     backgroundColor: '#FFFFFF',
                   }}
                 />

@@ -57,13 +57,21 @@
               "label": "Próximas atenciones",
               "description": "Tus próximas citas y medicamentos",
               "minWidth": "260dp",
-              "minHeight": "250dp",
+              "minHeight": "180dp",
               "targetCellWidth": 4,
-              "targetCellHeight": 4,
+              "targetCellHeight": 3,
               "resizeMode": "horizontal|vertical",
               "updatePeriodMillis": 1800000
             }
           ]
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "extraProguardRules": "-keep class * extends androidx.room.RoomDatabase { <init>(); }"
+          }
         }
       ],
       "expo-audio",

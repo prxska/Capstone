@@ -17,8 +17,8 @@ export const toDbProfileId = (profileId: string) => (profileId === OWNER_PROFILE
 export const fromDbProfileId = (value: unknown) => (value ? String(value) : OWNER_PROFILE_ID);
 
 export function describeMissingMigration(message: string) {
-  return /profile_id|care_profiles|stock/i.test(message) && /column|relation|schema cache|does not exist/i.test(message)
-    ? 'La base de datos aún no tiene perfiles ni stock. Ejecuta en Supabase el archivo supabase/migrations/20261018_care_profiles_and_stock.sql.'
+  return /profile_id|care_profiles/i.test(message) && /column|relation|schema cache|does not exist/i.test(message)
+    ? 'La base de datos aún no tiene perfiles. Ejecuta en Supabase el archivo supabase/migrations/20261018_care_profiles_and_stock.sql.'
     : message;
 }
 

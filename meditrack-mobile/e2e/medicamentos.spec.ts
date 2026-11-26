@@ -2,34 +2,26 @@ import { createMedication, expect, pressDialog, readStored, RECIPES_KEY, test } 
 
 test.describe('Medicamentos', () => {
   test('crea un medicamento con el asistente y sigue ahí al recargar', async ({ guest }) => {
-    await createMedication(guest, { name: 'Losartán', amount: '2', stock: '30' });
+    await createMedication(guest, { name: 'Losartán', amount: '2' });
 
     const delete_ = guest.getByRole('button', { name: /^Eliminar Losartán/ }).last();
     await expect(delete_).toBeVisible();
 
     const [saved] = await readStored(guest, RECIPES_KEY);
-    expect(saved).toMatchObject({ medication: 'Losartán', stock: 30, start_time: '08:00' });
+    expect(saved).toMatchObject({ medication: 'Losartán', start_time: '08:00' });
+    expect(saved).not.toHaveProperty('stock');
 
     await guest.reload();
     await expect(guest.getByRole('button', { name: /^Eliminar Losartán/ }).last()).toBeVisible();
   });
 
-  test('no guarda sin nombre ni con una cantidad inválida', async ({ guest }) => {
+  test('no muestra el campo de inventario y no guarda sin nombre', async ({ guest }) => {
     await guest.getByText('+ Receta').click();
+    await expect(guest.getByText('¿Cuántas tienes? (opcional)')).toBeHidden();
     await guest.getByText('Siguiente', { exact: true }).click();
     await guest.getByText('Siguiente', { exact: true }).click();
-    await guest.getByText('Guardar en Teléfono').click();
+    await guest.getByRole('button', { name: 'Guardar medicamento' }).click();
     expect(await pressDialog(guest)).toBe('Incompleto');
-    expect(await readStored(guest, RECIPES_KEY)).toEqual([]);
-
-    await guest.getByText('Atrás', { exact: true }).click();
-    await guest.getByText('Atrás', { exact: true }).click();
-    await guest.getByPlaceholder('Ej. Paracetamol').fill('Aspirina');
-    await guest.getByPlaceholder(/^Ej\. 30/).fill('muchas');
-    await guest.getByText('Siguiente', { exact: true }).click();
-    await guest.getByText('Siguiente', { exact: true }).click();
-    await guest.getByText('Guardar en Teléfono').click();
-    expect(await pressDialog(guest)).toBe('Cantidad no válida');
     expect(await readStored(guest, RECIPES_KEY)).toEqual([]);
   });
 
@@ -65,7 +57,7 @@ test.describe('Medicamentos', () => {
 
     await minutes.fill('37');
     await guest.getByText('Siguiente', { exact: true }).click();
-    await guest.getByText('Guardar en Teléfono').click();
+    await guest.getByRole('button', { name: 'Guardar medicamento' }).click();
     await expect(guest.getByText('Nueva Receta')).toBeHidden();
 
     const [saved] = await readStored(guest, RECIPES_KEY);
@@ -73,14 +65,14 @@ test.describe('Medicamentos', () => {
   });
 
   test('edita un medicamento existente', async ({ guest }) => {
-    await createMedication(guest, { name: 'Ibuprofeno', stock: '20' });
+    await createMedication(guest, { name: 'Ibuprofeno' });
 
     await guest.getByText(/^Ibuprofeno \(/).last().click();
     await expect(guest.getByText('Editar Receta')).toBeVisible();
     await guest.getByPlaceholder('Ej. Paracetamol').fill('Ibuprofeno 400');
     await guest.getByText('Siguiente', { exact: true }).click();
     await guest.getByText('Siguiente', { exact: true }).click();
-    await guest.getByText('Actualizar en Teléfono').click();
+    await guest.getByRole('button', { name: 'Guardar medicamento' }).click();
     await expect(guest.getByText('Editar Receta')).toBeHidden();
 
     const list = await readStored(guest, RECIPES_KEY);
@@ -132,8 +124,4 @@ test.describe('Medicamentos', () => {
     expect((await photo.boundingBox())!.x).toBeGreaterThan(name.x + name.width);
   });
 
-  test('avisa cuando quedan pocas', async ({ guest }) => {
-    await createMedication(guest, { name: 'Atorvastatina', stock: '2' });
-    await expect(guest.getByText('Quedan pocas: Atorvastatina')).toBeVisible();
-  });
 });

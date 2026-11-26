@@ -18,7 +18,7 @@ import {
   View
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import Animated, { FadeIn, FadeInDown, FadeInLeft, FadeInRight, FadeOut, FadeOutLeft, LinearTransition } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeInDown, FadeInLeft, FadeInRight, FadeOutLeft, LinearTransition } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ActionTile } from '../components/ActionTile';
 import { AppButton } from '../components/AppButton';
@@ -43,11 +43,8 @@ import {
 } from '../lib/careProfiles';
 import { doseKey, getNextDose, loadDoseLog, saveDoseLog, type DoseLog, type DoseState } from '../lib/doseLog';
 import {
-  LOW_STOCK_DAYS,
-  calculateDoseTimes, formatDose, formatStock,
+  calculateDoseTimes, formatDose,
   getIntervalHours,
-  getStockDaysLeft,
-  parseDoseAmount
 } from '../lib/doseSchedule';
 import { getMedicationPhoto, uploadMedicationPhoto } from '../lib/medicationPhotos';
 import { LocalAuth } from '../lib/storage';
@@ -134,7 +131,6 @@ const initialRecipeForm = {
   photoUri: '',
   photoStoragePath: '',
   isChronic: false,
-  stock: '',
 };
 
 const initialAppointmentForm = {
@@ -283,7 +279,6 @@ export default function App() {
   // Alertas que coincidieron: se muestran de a una
   const [alertQueue, setAlertQueue] = useState<{ items: AttentionAlertData[]; index: number }>({ items: [], index: 0 });
   const activeAlert = alertQueue.items[alertQueue.index] ?? null;
-  const stockUpdatesRef = useRef<Promise<void>>(Promise.resolve());
   const [showTutorial, setShowTutorial] = useState(false);
   const tutorialKeyRef = useRef('guest');
   const eventsRef = useRef<any[]>([]);
@@ -351,16 +346,6 @@ export default function App() {
   const visibleEvents = useMemo(
     () => events.filter((event) => event.profileId === activeProfileId),
     [events, activeProfileId]
-  );
-
-  const lowStockRecipes = useMemo(
-    () =>
-      visibleEvents.filter((event) => {
-        if (event.type !== 'recipe' || (event.endDate && event.endDate < todayKey)) return false;
-        const daysLeft = getStockDaysLeft(event);
-        return daysLeft != null && daysLeft <= LOW_STOCK_DAYS;
-      }),
-    [visibleEvents, todayKey]
   );
 
   const profileDisplayName = (profileId: string) => {
@@ -455,7 +440,6 @@ export default function App() {
           photoUri: r.photoUri || r.photo_url || '',
           photoStoragePath: r.photoStoragePath || '',
           profileId: fromDbProfileId(r.profile_id),
-          stock: r.stock == null ? null : Number(r.stock),
           type: 'recipe' as const,
         }));
 
@@ -534,7 +518,6 @@ export default function App() {
             photoUri: photo.photoUri,
             photoStoragePath: photo.photoStoragePath,
             profileId: fromDbProfileId(r.profile_id),
-            stock: r.stock == null ? null : Number(r.stock),
             type: 'recipe' as const,
           };
         }));
@@ -603,36 +586,10 @@ export default function App() {
     void saveDoseLog(next);
   };
 
-  const updateStockAfterDose = async (eventId: string) => {
-    const recipe = eventsRef.current.find((e) => e.id === eventId);
-    if (!recipe || recipe.stock == null) return;
-
-    const nextStock = Math.max(0, recipe.stock - parseDoseAmount(recipe.dose));
-    try {
-      if (await LocalAuth.isGuestMode()) {
-        const raw = await AsyncStorage.getItem(LOCAL_RECIPES_KEY);
-        const list = raw ? JSON.parse(raw) : [];
-        await AsyncStorage.setItem(
-          LOCAL_RECIPES_KEY,
-          JSON.stringify(list.map((r: any) => (String(r.id) === String(recipe.rawId) ? { ...r, stock: nextStock } : r)))
-        );
-      } else {
-        const { error } = await supabase.from('recipes').update({ stock: nextStock }).eq('id', recipe.rawId);
-        if (error) throw error;
-      }
-      setEvents((prev) => prev.map((e) => (e.id === recipe.id ? { ...e, stock: nextStock } : e)));
-    } catch (err: any) {
-      Alert.alert('No se pudo actualizar el stock', describeMissingMigration(String(err?.message || '')));
-    }
-  };
-
   const markDoseTaken = (eventId: string, date: string, time: string) => {
     const key = doseKey(eventId, date, time);
-    // La misma toma se puede marcar en la tarjeta y en la alerta: el stock se descuenta una sola vez
     if (doseLogRef.current[key] === 'taken') return;
     updateDoseLog(key, 'taken');
-    // De a una: si se aceptan varias seguidas no deben pisarse al guardar
-    stockUpdatesRef.current = stockUpdatesRef.current.then(() => updateStockAfterDose(eventId));
   };
 
   const handleDoseTaken = (alert: AttentionAlertData) => {
@@ -823,7 +780,6 @@ export default function App() {
       }
 
       setRecipeForm({
-        stock: event.stock == null ? '' : String(event.stock).replace('.', ','),
         patient: event.patient,
         medication: event.medication || '',
         dose: event.dose || '',
@@ -959,20 +915,8 @@ export default function App() {
         }
 
         const fullDose = `${doseAmount.trim()} ${doseUnit}`;
-        const stockText = recipeForm.stock.trim().replace(',', '.');
-        const stockValue = stockText === '' ? null : Number(stockText);
-        if (stockValue != null && (!Number.isFinite(stockValue) || stockValue < 0)) {
-          Alert.alert('Cantidad no válida', 'Escribe cuántas tienes como un número, por ejemplo 30.');
-          setSaving(false);
-          return;
-        }
-        
-        const editingHadStock = !!editingId && events.some(
-          (e) => e.type === 'recipe' && String(e.rawId) === String(editingId) && e.stock != null
-        );
         const optionalRecipeColumns = {
           ...(profileDbId ? { profile_id: profileDbId } : {}),
-          ...(stockValue != null || editingHadStock ? { stock: stockValue } : {}),
         };
         
         const recipeColor = (editingId && editingColor) || pickNextRecipeColor(events);
@@ -985,7 +929,6 @@ export default function App() {
             id: recipeId,
             patient: patientName,
             profile_id: profileDbId,
-            stock: stockValue,
             medication: recipeForm.medication,
             dose: fullDose,
             color: recipeColor.id,
@@ -1266,29 +1209,6 @@ export default function App() {
           ) : (
             <NoDoseCard hasMedications={visibleEvents.some((e) => e.type === 'recipe')} />
           )}
-
-          {lowStockRecipes.map((recipe) => (
-            <Animated.View key={`stock-${recipe.id}`} entering={FadeInDown.duration(300)} exiting={FadeOut.duration(150)}>
-            <TouchableOpacity
-              style={styles.lowStockBanner}
-              onPress={() => handleEditEvent(recipe)}
-              accessibilityLabel={`Quedan pocas de ${recipe.medication}. Toca para actualizar la cantidad`}
-            >
-              <Ionicons name="warning" size={26} color="#B45309" />
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.lowStockTitle, largeFont && { fontSize: 22 }]}>
-                  {recipe.stock === 0 ? `Se acabó ${recipe.medication}` : `Quedan pocas: ${recipe.medication}`}
-                </Text>
-                <Text style={[styles.lowStockText, largeFont && { fontSize: 20 }]}>
-                  {recipe.stock === 0
-                    ? 'Compra más y actualiza la cantidad'
-                    : `Te quedan ${formatStock(recipe.stock, recipe.dose)}. Compra más pronto.`}
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={22} color="#B45309" />
-            </TouchableOpacity>
-            </Animated.View>
-          ))}
 
           <WeekStrip
             days={weekDaysKeys}
@@ -1689,15 +1609,6 @@ export default function App() {
                             onChangeText={setDoseAmount}
                           />
 
-                          <Text style={[styles.label, isDarkMode && styles.darkSubtext]}>
-                            ¿Cuántas tienes? (opcional)
-                          </Text>
-                          <FormInput
-                            placeholder="Ej. 30 — te avisaremos cuando queden pocas"
-                            keyboardType="numeric"
-                            value={recipeForm.stock}
-                            onChangeText={(value) => handleRecipeChange('stock', value)}
-                          />
                         </Animated.View>
                       )}
 
@@ -2115,11 +2026,7 @@ export default function App() {
                       tone={formType === 'appointment' ? 'indigo' : 'primary'}
                       loading={saving}
                       onPress={handleSubmit}
-                      label={
-                        editingId
-                          ? (isGuest ? 'Actualizar en Teléfono' : 'Actualizar en Supabase')
-                          : (isGuest ? 'Guardar en Teléfono' : 'Guardar en Supabase')
-                      }
+                      label={formType === 'appointment' ? 'Guardar cita' : 'Guardar medicamento'}
                     />
                   )}
 
@@ -2409,19 +2316,6 @@ const styles = StyleSheet.create({
   profileChipActive: { backgroundColor: '#0369A1', borderColor: '#0369A1' },
   profileChipAdd: { borderStyle: 'dashed' },
   profileChipText: { fontSize: 18, fontWeight: '700', color: '#0F172A' },
-  lowStockBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: '#FEF3C7',
-    borderColor: '#F59E0B',
-    borderWidth: 2,
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 12,
-  },
-  lowStockTitle: { fontSize: 18, fontWeight: '800', color: '#92400E' },
-  lowStockText: { fontSize: 16, fontWeight: '600', color: '#78350F', marginTop: 2 },
   calendarPanel: { backgroundColor: '#FFF', borderRadius: 20, padding: 15, marginBottom: 15, borderWidth: 1, borderColor: '#BFDBFE' },
   calendarActions: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
   navButton: {

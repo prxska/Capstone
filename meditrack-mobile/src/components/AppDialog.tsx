@@ -25,12 +25,12 @@ export function AppDialog({ icon, color, title, children, primaryLabel, onPrimar
     <Modal visible transparent animationType="fade" onRequestClose={onSecondary}>
       <View style={styles.backdrop}>
         <Animated.View
-          entering={ZoomIn.springify().damping(16).stiffness(180)}
+          entering={ZoomIn.duration(260)}
           style={[styles.card, isDarkMode && { backgroundColor: '#1E293B' }]}
           accessibilityRole="alert"
         >
           <Animated.View
-            entering={ZoomIn.delay(120).springify().damping(12)}
+            entering={ZoomIn.delay(120).duration(220)}
             style={[styles.iconCircle, { backgroundColor: color }]}
           >
             <Ionicons name={icon} size={46} color="#FFF" />

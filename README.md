@@ -60,3 +60,16 @@ Sigue estos pasos para levantar el entorno local del frontend móvil correspondi
    - **Android:** Abre la aplicación Expo Go y escanea el código QR proyectado en la terminal.
    - **iOS:** Abre la cámara nativa del teléfono y enfoca el código QR para abrir el enlace en Expo Go.
    - Espera a que finalice la compilación del bundle de JavaScript para interactuar con la interfaz en el dispositivo.
+
+## 📲 Presentar la aplicación sin dejar el servidor corriendo
+
+Para una presentación en Android, se puede generar un APK de instalación independiente con EAS Build. El APK incluye la aplicación y no necesita que Metro/Expo quede ejecutándose en el computador:
+
+```bash
+cd meditrack-mobile
+npx eas-cli@latest build --profile preview --platform android
+```
+
+Inicia sesión o crea una cuenta de Expo cuando EAS lo solicite. Al terminar, descarga el APK desde el enlace que entrega EAS e instálalo en el teléfono antes de la presentación. El perfil `preview` ya está configurado para generar un APK de distribución interna.
+
+La app puede demostrarse en modo local/invitado sin depender de un servidor propio; los datos de ese modo quedan en el teléfono. Para iniciar sesión, sincronizar datos o usar cuentas, el dispositivo sí necesita internet para conectarse a Supabase (servicio en la nube), pero no hay que mantener un servidor local activo.

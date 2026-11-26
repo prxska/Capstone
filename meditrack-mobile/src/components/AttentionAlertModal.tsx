@@ -9,7 +9,7 @@ import { OWNER_PROFILE_ID } from '../lib/careProfiles';
 import { AppButton } from './AppButton';
 import { Gradient } from './Gradient';
 import { Pulse } from './motion';
-import { formatDose, formatStock, getStockDaysLeft, LOW_STOCK_DAYS, parseDoseAmount } from '../lib/doseSchedule';
+import { formatDose } from '../lib/doseSchedule';
 
 const monthNames = [
   'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
@@ -40,11 +40,11 @@ type Props = {
   // Lugar de esta alerta entre las que coincidieron (empieza en 1)
   position: number;
   total: number;
-  // Registros cargados: se usan para mostrar la foto y el stock más recientes (las URL firmadas expiran)
+  // Registros cargados: se usan para mostrar la foto más reciente (las URL firmadas expiran)
   events: any[];
   // Pasa a la siguiente alerta sin marcar esta
   onClose: () => void;
-  // "Ya me la tomé": descuenta la dosis del stock y pasa a la siguiente alerta
+  // "Ya me la tomé": registra la toma y pasa a la siguiente alerta
   onTaken: (alert: AttentionAlertData) => void;
 };
 
@@ -107,10 +107,6 @@ export function AttentionAlertModal({ alert, position, total, events, onClose, o
   if (!alert) return null;
 
   const photoUri = isMedication ? current?.photoUri || alert.photoUri : '';
-  const stock: number | null = isMedication ? current?.stock ?? null : null;
-  // Stock que quedará después de esta toma
-  const stockAfter = stock == null ? null : Math.max(0, stock - parseDoseAmount(dose));
-  const daysLeftAfter = stockAfter == null || !current ? null : getStockDaysLeft({ ...current, stock: stockAfter });
   const hasNext = position < total;
   const accent = isMedication ? '#0369A1' : '#B45309';
   const textColor = isDarkMode ? '#F1F5F9' : '#102A43';
@@ -121,7 +117,6 @@ export function AttentionAlertModal({ alert, position, total, events, onClose, o
     ? [
         { icon: 'medical', text: `Tomar ${doseText || 'la dosis indicada'}` },
         { icon: 'time-outline', text: alert.time },
-        ...(stockAfter != null ? [{ icon: 'cube-outline' as const, text: `${stockAfter === 1 ? 'Quedará' : 'Quedarán'} ${formatStock(stockAfter, dose)}` }] : []),
       ]
     : [
         { icon: 'calendar-outline', text: `${formatLongDate(alert.date)}, ${alert.time}` },
@@ -133,7 +128,7 @@ export function AttentionAlertModal({ alert, position, total, events, onClose, o
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.backdrop}>
-        <Animated.View entering={ZoomIn.springify().damping(16).stiffness(180)} style={[styles.card, isDarkMode && { backgroundColor: '#1E293B' }]}>
+        <Animated.View entering={ZoomIn.duration(260)} style={[styles.card, isDarkMode && { backgroundColor: '#1E293B' }]}>
           <View style={[styles.header, { backgroundColor: accent }]}>
             <Gradient colors={isMedication ? ['#0B3A66', '#0369A1'] : ['#78350F', '#B45309']} />
             <Pulse>
@@ -170,15 +165,6 @@ export function AttentionAlertModal({ alert, position, total, events, onClose, o
                 <Text style={[styles.rowText, { color: subColor, fontSize: 20 + big }]}>{row.text}</Text>
               </View>
             ))}
-
-            {daysLeftAfter != null && daysLeftAfter <= LOW_STOCK_DAYS ? (
-              <View style={styles.lowStock}>
-                <Ionicons name="warning" size={22} color="#B45309" />
-                <Text style={[styles.lowStockText, { fontSize: 17 + big }]}>
-                  {stockAfter === 0 ? 'Se acabó este medicamento. Compra más.' : 'Quedan pocas: compra más pronto.'}
-                </Text>
-              </View>
-            ) : null}
 
             <AppButton
               className="mt-3.5"
@@ -220,16 +206,6 @@ const styles = StyleSheet.create({
   title: { fontWeight: '800', marginBottom: 12 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
   rowText: { fontWeight: '600', flexShrink: 1 },
-  lowStock: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#FEF3C7',
-    borderRadius: 12,
-    padding: 12,
-    marginTop: 4,
-  },
-  lowStockText: { color: '#92400E', fontWeight: '700', flexShrink: 1 },
   secondaryButton: { marginTop: 6, paddingVertical: 12, alignItems: 'center' },
   secondaryButtonText: { fontWeight: '600' },
 });

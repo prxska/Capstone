@@ -41,16 +41,15 @@ export async function pressDialog(page: Page, button?: string) {
 
 export async function createMedication(
   page: Page,
-  options: { name: string; amount?: string; stock?: string; minutes?: string }
+  options: { name: string; amount?: string; minutes?: string }
 ) {
   await page.getByText('+ Receta').click();
   await page.getByPlaceholder('Ej. Paracetamol').fill(options.name);
   await page.getByPlaceholder('Ej. 1', { exact: true }).fill(options.amount ?? '1');
-  if (options.stock) await page.getByPlaceholder(/^Ej\. 30/).fill(options.stock);
   await page.getByText('Siguiente', { exact: true }).click();
   if (options.minutes) await page.getByLabel('Minutos').fill(options.minutes);
   await page.getByText('Siguiente', { exact: true }).click();
-  await page.getByText('Guardar en Teléfono').click();
+  await page.getByRole('button', { name: 'Guardar medicamento' }).click();
   await expect(page.getByText('Nueva Receta')).toBeHidden();
 }
 
@@ -62,7 +61,7 @@ export async function createAppointment(
   await page.getByPlaceholder('Ej. Dra. Gómez').fill(options.doctor);
   if (options.location) await page.getByPlaceholder(/^Ej\. Hospital/).fill(options.location);
   if (options.minutes) await page.getByLabel('Minutos').fill(options.minutes);
-  await page.getByText('Guardar en Teléfono').click();
+  await page.getByRole('button', { name: 'Guardar cita' }).click();
   await expect(page.getByText('Nueva Cita Médica')).toBeHidden();
 }
 
